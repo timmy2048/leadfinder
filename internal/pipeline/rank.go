@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -14,7 +13,7 @@ import (
 )
 
 // RankDepth is how many Google Maps results are inspected per search.
-const RankDepth = 20
+const RankDepth = 60
 
 // RankSearcher returns ordered Maps results for keyword around lat/lon.
 type RankSearcher func(ctx context.Context, keyword string, lat, lon float64) ([]model.Business, error)
@@ -23,74 +22,56 @@ type RankSearcher func(ctx context.Context, keyword string, lat, lon float64) ([
 func GMapsRankSearcher(url, lang string) RankSearcher {
 	return func(ctx context.Context, kw string, lat, lon float64) ([]model.Business, error) {
 		return gmaps.New(url).Scrape(ctx, gmaps.Request{
-			Name: fmt.Sprintf("lf-rank-%.4f,%.4f", lat, lon), Keywords: []string{kw}, Lang: lang, Zoom: 15,
+			Name: fmt.Sprintf("lf-rank-center-%.4f,%.4f", lat, lon), Keywords: []string{kw}, Lang: lang, Zoom: 15,
 			Lat: strconv.FormatFloat(lat, 'f', 6, 64), Lon: strconv.FormatFloat(lon, 'f', 6, 64),
-			Radius: 3000, FastMode: true, Depth: 1, MaxTime: 180,
+			Radius: 5000, FastMode: true, Depth: 3, MaxTime: 180,
 		}, nil)
 	}
 }
 
-// AssignRanks sets MapsRank for reachable leads. Leads are grouped into
-// cells of cellM meters so one search serves all leads in a cell.
+// AssignRanks sets MapsRank for reachable leads using ONE search of kw
+// centered at the job's center point (like a customer searching the area).
+// cellM is kept for API compatibility and ignored.
 func AssignRanks(ctx context.Context, bs []model.Business, kw string, cellM int, centerLat, centerLon float64, search RankSearcher, prog func(string)) {
-	if cellM <= 0 {
-		cellM = 2500
-	}
-	type key struct{ a, b int64 }
-	groups := map[key][]int{}
-	var order []key
+	n := 0
 	for i := range bs {
-		if !bs[i].Reachable {
-			continue
+		if bs[i].Reachable {
+			n++
 		}
-		lat, lon := bs[i].Lat, bs[i].Lon
-		if lat == 0 && lon == 0 {
-			lat, lon = centerLat, centerLon
-		}
-		step := float64(cellM) / 111320.0
-		k := key{int64(math.Floor(lat / step)), int64(math.Floor(lon / step))}
-		if _, ok := groups[k]; !ok {
-			order = append(order, k)
-		}
-		groups[k] = append(groups[k], i)
 	}
-	for n, k := range order {
-		idx := groups[k]
-		var la, lo float64
-		for _, i := range idx {
-			lat, lon := bs[i].Lat, bs[i].Lon
-			if lat == 0 && lon == 0 {
-				lat, lon = centerLat, centerLon
-			}
-			la += lat
-			lo += lon
-		}
-		la, lo = la/float64(len(idx)), lo/float64(len(idx))
+	if n == 0 {
+		return
+	}
+	if prog != nil {
+		prog(fmt.Sprintf("maps rank: one search %q @ center %.4f,%.4f (%d leads)", kw, centerLat, centerLon, n))
+	}
+	res, err := search(ctx, kw, centerLat, centerLon)
+	if err != nil {
 		if prog != nil {
-			prog(fmt.Sprintf("maps rank: search %d/%d %q @ %.4f,%.4f (%d leads)", n+1, len(order), kw, la, lo, len(idx)))
+			prog("maps rank error: " + err.Error())
 		}
-		res, err := search(ctx, kw, la, lo)
-		if err != nil {
-			if prog != nil {
-				prog("maps rank error: " + err.Error())
-			}
+		return
+	}
+	if len(res) > RankDepth {
+		res = res[:RankDepth]
+	}
+	if prog != nil {
+		prog(fmt.Sprintf("maps rank: %d results inspected", len(res)))
+	}
+	for i := range bs {
+		b := &bs[i]
+		if !b.Reachable {
 			continue
 		}
-		if len(res) > RankDepth {
-			res = res[:RankDepth]
-		}
-		for _, i := range idx {
-			b := &bs[i]
-			b.MapsRank, b.MapsRankN, b.RankKeyword = -1, len(res), kw
-			for r, c := range res {
-				if SamePlace(*b, c) {
-					b.MapsRank = r + 1
-					break
-				}
+		b.MapsRank, b.MapsRankN, b.RankKeyword = -1, len(res), kw
+		for r, c := range res {
+			if SamePlace(*b, c) {
+				b.MapsRank = r + 1
+				break
 			}
-			b.InLocalPack = b.MapsRank >= 1 && b.MapsRank <= 3
-			score.Compute(b)
 		}
+		b.InLocalPack = b.MapsRank >= 1 && b.MapsRank <= 3
+		score.Compute(b)
 	}
 }
 

@@ -11,17 +11,20 @@ import (
 func TestAssignRanks(t *testing.T) {
 	leads := []model.Business{
 		{Name: "Kahwa Coffee", Phone: "(813) 228-7900", Reachable: true, Sources: []string{"gmaps"}, Lat: 27.95, Lon: -82.457, Emails: []string{"a@b.com"}},
-		{Name: "Hidden Cafe", Reachable: true, Sources: []string{"gmaps"}, Lat: 27.951, Lon: -82.458},
+		{Name: "Hidden Cafe", Reachable: true, Sources: []string{"gmaps"}, Lat: 28.2, Lon: -82.9},
 		{Name: "No Email", Reachable: false},
 	}
 	calls := 0
 	s := func(ctx context.Context, kw string, lat, lon float64) ([]model.Business, error) {
 		calls++
+		if lat != 27.95 || lon != -82.45 {
+			t.Fatalf("search not at job center: %v,%v", lat, lon)
+		}
 		return []model.Business{{Name: "A"}, {Name: "B"}, {Name: "C"}, {Name: "x", Phone: "+1813-228-7900"}}, nil
 	}
 	AssignRanks(context.Background(), leads, "cafe", 2500, 27.95, -82.45, s, nil)
 	if calls != 1 {
-		t.Fatalf("want 1 shared search, got %d", calls)
+		t.Fatalf("want 1 center search, got %d", calls)
 	}
 	if leads[0].MapsRank != 4 || leads[0].InLocalPack {
 		t.Fatalf("rank %+v", leads[0].MapsRank)
