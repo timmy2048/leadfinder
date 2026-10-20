@@ -11,9 +11,9 @@
 <a href="/jobs/{{.Job.ID}}?view=all" class="{{if eq .View "all"}}on{{end}}">全部</a>
  · 导出 CSV：<a href="/jobs/{{.Job.ID}}/csv">可触达</a> / <a href="/jobs/{{.Job.ID}}/csv?view=unreachable">暂不可触达</a> / <a href="/jobs/{{.Job.ID}}/csv?view=all">全部</a> · <a href="/api/jobs/{{.Job.ID}}">JSON</a></p>
 <p class="ng">GMB 机会分 = 下列提升点权重之和，越高越值得联系。只对有邮箱的商家计算。地图排名 = 用任务行业关键词在商家附近搜谷歌地图的名次（前 20 内），「前三」即进入 Local Pack，>20 表示前 20 没找到。</p>
-<table><tr><th>名称</th><th>首选邮箱</th><th>其他邮箱</th><th>电话</th><th>网站</th><th>地址</th><th>评分</th><th>评论数</th><th>地图排名</th><th>GMB分</th><th>可提升点（中文）</th><th>Pitch (EN)</th></tr>
+<table><tr><th>名称</th><th>首选邮箱</th><th>邮箱来源</th><th>其他邮箱</th><th>电话</th><th>网站</th><th>地址</th><th>评分</th><th>评论数</th><th>地图排名</th><th>GMB分</th><th>可提升点（中文）</th><th>Pitch (EN)</th></tr>
 {{range .Rows}}<tr><td>{{.Name}}</td>
-<td>{{.BestEmail}}{{if .EmailType}} <small>[{{typezh .EmailType}}]</small>{{end}}</td>
+<td>{{.BestEmail}}{{if .EmailType}} <small>[{{typezh .EmailType}}]</small>{{end}}</td><td><small>{{srczh (index .EmailSources .BestEmail)}}</small></td>
 <td><small>{{others .}}</small></td><td>{{.Phone}}</td>
 <td>{{if .Website}}<a href="{{.Website}}" target="_blank" rel="noopener">{{.Website}}</a>{{end}}</td>
 <td><small>{{.Address}}</small></td><td>{{if .Rating}}{{.Rating}}{{end}}</td><td>{{if .ReviewCount}}{{.ReviewCount}}{{end}}</td>

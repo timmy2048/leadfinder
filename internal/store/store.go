@@ -100,6 +100,40 @@ func (s *Store) ListJobs() ([]model.Job, error) {
 	return out, rows.Err()
 }
 
+// EmailSourceZH renders an email source label, e.g. "官网 /contact", "Facebook", "猜测".
+func EmailSourceZH(s string) string {
+	if s == "" {
+		return ""
+	}
+	k, path, _ := strings.Cut(s, ":")
+	m := map[string]string{"site": "官网", "sitemap": "官网(sitemap)", "js": "官网(JS渲染)", "facebook": "Facebook", "instagram": "Instagram", "tiktok": "TikTok",
+		"rdap": "域名RDAP", "commoncrawl": "CommonCrawl存档", "guessed": "猜测(未验证)", "import": "导入CSV", "gmaps": "谷歌地图", "osm": "OSM"}
+	if z, ok := m[k]; ok {
+		k = z
+	}
+	if path != "" {
+		return k + " " + path
+	}
+	return k
+}
+
+// InterruptedJobs returns jobs left pending/running by a previous process.
+func (s *Store) InterruptedJobs() ([]model.Job, error) {
+	all, err := s.ListJobs()
+	var out []model.Job
+	for _, j := range all {
+		if j.Status == "pending" || j.Status == "running" {
+			out = append(out, j)
+		}
+	}
+	return out, err
+}
+
+// MarkInterruptedImports fails interrupted CSV-import jobs (rows are not kept).
+func (s *Store) MarkInterruptedImports() {
+	_, _ = s.db.Exec(`UPDATE jobs SET status='failed', error='interrupted (server restarted); re-upload CSV' WHERE status IN ('pending','running') AND params LIKE '%"import_file":"%'`)
+}
+
 // MarkInterrupted fails jobs left running by a previous process.
 func (s *Store) MarkInterrupted() {
 	_, _ = s.db.Exec(`UPDATE jobs SET status='failed', error='interrupted (server restarted)' WHERE status IN ('pending','running')`)
@@ -268,9 +302,9 @@ func (s *Store) UpsertLeads(leadKey string, bs []model.Business) error {
 func WriteCSV(w io.Writer, bs []model.Business) error {
 	_, _ = w.Write([]byte("\ufeff"))
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"name", "primary_email", "email_type", "other_emails", "phone", "website", "address", "rating", "review_count", "maps_rank", "gmb_score", "points_zh", "points_en"})
+	_ = cw.Write([]string{"name", "primary_email", "email_type", "email_source", "other_emails", "phone", "website", "address", "rating", "review_count", "maps_rank", "gmb_score", "points_zh", "points_en"})
 	for _, b := range bs {
-		_ = cw.Write([]string{b.Name, b.BestEmail, EmailTypeZH(b.EmailType), OtherEmails(b), b.Phone, b.Website, b.Address,
+		_ = cw.Write([]string{b.Name, b.BestEmail, EmailTypeZH(b.EmailType), EmailSourceZH(b.EmailSources[b.BestEmail]), OtherEmails(b), b.Phone, b.Website, b.Address,
 			ratingStr(b.Rating), fmt.Sprint(b.ReviewCount), RankLabel(b), fmt.Sprint(b.GMBScore), joinPts(b.Points, "zh"), joinPts(b.Points, "en")})
 	}
 	cw.Flush()
@@ -322,7 +356,11 @@ func OtherEmails(b model.Business) string {
 	var out []string
 	for _, e := range b.Emails {
 		if e != b.BestEmail {
-			out = append(out, e+"("+EmailTypeZH(b.EmailTypes[e])+")")
+			t := EmailTypeZH(b.EmailTypes[e])
+			if src := b.EmailSources[e]; src != "" {
+				t += ", " + EmailSourceZH(src)
+			}
+			out = append(out, e+"("+t+")")
 		}
 	}
 	return strings.Join(out, "; ")

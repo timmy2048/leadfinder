@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/timmy2048/leadfinder/internal/dedupe"
+	"github.com/timmy2048/leadfinder/internal/importer"
 	"github.com/timmy2048/leadfinder/internal/score"
 	"html/template"
 	"net/http"
@@ -31,16 +32,24 @@ type Server struct {
 }
 
 type job struct {
-	id int64
-	p  model.JobParams
+	id  int64
+	p   model.JobParams
+	imp []model.Business
 }
 
+// Enqueue queues a job (used for resuming interrupted jobs).
+func (s *Server) Enqueue(id int64, p model.JobParams) { s.queue <- job{id: id, p: p} }
+
 func New(st *store.Store, r *pipeline.Runner) *Server {
-	t := template.Must(template.New("").Funcs(template.FuncMap{"join": strings.Join, "rank": store.RankLabel, "typezh": store.EmailTypeZH, "others": store.OtherEmails}).ParseFS(tplFS, "templates/*.html"))
+	t := template.Must(template.New("").Funcs(template.FuncMap{"join": strings.Join, "rank": store.RankLabel, "typezh": store.EmailTypeZH, "others": store.OtherEmails, "srczh": store.EmailSourceZH}).ParseFS(tplFS, "templates/*.html"))
 	s := &Server{Store: st, Runner: r, tpl: t, queue: make(chan job, 100)}
 	go func() { // one job at a time to stay polite to public services
 		for j := range s.queue {
-			_, _ = r.Run(context.Background(), j.id, j.p)
+			if j.p.ImportFile != "" {
+				_, _ = r.RunImport(context.Background(), j.id, j.p, j.imp)
+			} else {
+				_, _ = r.Run(context.Background(), j.id, j.p)
+			}
 		}
 	}()
 	return s
@@ -51,6 +60,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /{$}", s.index)
 	m.HandleFunc("POST /jobs", s.create)
 	m.HandleFunc("GET /jobs/{id}", s.view)
+	m.HandleFunc("POST /import", s.importCSV)
 	m.HandleFunc("GET /jobs/{id}/csv", s.csv)
 	m.HandleFunc("GET /api/jobs", s.apiJobs)
 	m.HandleFunc("GET /api/jobs/{id}", s.apiJob)
@@ -78,6 +88,8 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		RadiusM: radius, Limit: atoi("limit"), MaxResults: atoi("max_results"),
 		UseGMaps: on("gmaps"), UseOSM: on("osm"), Social: on("social"), SMTPCheck: on("smtp"), GMapsMaxSec: atoi("gmaps_max_sec"),
 		Incremental: on("incremental"), CellSizeM: atoi("cell_size"), MaxCells: atoi("max_cells"),
+		Directories: r.Form["dir"], ChamberURL: strings.TrimSpace(r.FormValue("chamber_url")), MaxPages: atoi("max_pages"),
+		JSRender: on("js_render"), RDAP: on("rdap"), CommonCrawl: on("common_crawl"), GuessEmails: on("guess"),
 	}
 	if p.Category == "" || p.Location == "" {
 		http.Error(w, "category and location required", 400)
@@ -89,7 +101,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.queue <- job{id, p}
+	s.queue <- job{id: id, p: p}
 	http.Redirect(w, r, fmt.Sprintf("/jobs/%d", id), http.StatusSeeOther)
 }
 
@@ -185,4 +197,35 @@ func (s *Server) apiCoverage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (s *Server) importCSV(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file required", 400)
+		return
+	}
+	defer f.Close()
+	bs, err := importer.Parse(f)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	mr, _ := strconv.Atoi(r.FormValue("max_results"))
+	p := model.JobParams{Category: strings.TrimSpace(r.FormValue("category")), Location: strings.TrimSpace(r.FormValue("location")),
+		Country: r.FormValue("country"), MaxResults: mr, UseGMaps: r.FormValue("rank") != "", Social: r.FormValue("social") != "",
+		JSRender: true, RDAP: true, CommonCrawl: true, ImportFile: hdr.Filename}
+	pipeline.Normalize(&p)
+	p.UseOSM = false
+	id, err := s.Store.CreateJob(p)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.queue <- job{id: id, p: p, imp: bs}
+	http.Redirect(w, r, fmt.Sprintf("/jobs/%d", id), http.StatusSeeOther)
 }

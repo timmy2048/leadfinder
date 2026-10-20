@@ -11,12 +11,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/timmy2048/leadfinder/internal/commoncrawl"
 	"github.com/timmy2048/leadfinder/internal/coverage"
 	"github.com/timmy2048/leadfinder/internal/crawl"
 	"github.com/timmy2048/leadfinder/internal/dedupe"
+	"github.com/timmy2048/leadfinder/internal/directory"
+	"github.com/timmy2048/leadfinder/internal/fetch"
 	"github.com/timmy2048/leadfinder/internal/gmaps"
 	"github.com/timmy2048/leadfinder/internal/model"
 	"github.com/timmy2048/leadfinder/internal/osm"
+	"github.com/timmy2048/leadfinder/internal/rdap"
 	"github.com/timmy2048/leadfinder/internal/score"
 	"github.com/timmy2048/leadfinder/internal/social"
 	"github.com/timmy2048/leadfinder/internal/store"
@@ -28,6 +32,14 @@ type Runner struct {
 	OSM         *osm.Client
 	GMapsURL    string
 	Concurrency int
+	Fetch       *fetch.Client // shared polite client (rate limit, proxies, retry)
+}
+
+func (r *Runner) fetcher() *fetch.Client {
+	if r.Fetch == nil {
+		r.Fetch = fetch.New(fetch.DefaultOptions())
+	}
+	return r.Fetch
 }
 
 // PlaceQuery builds the Nominatim query from location + optional finer area.
@@ -160,10 +172,54 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 		all = append(all, bs...)
 	}
 
+	for _, name := range p.Directories {
+		src, ok := directory.All[name]
+		if !ok {
+			continue
+		}
+		prog(name + ": searching directory")
+		bs, err := src.Search(ctx, r.fetcher(), directory.Query{Category: p.Category, Location: query, City: p.Location, Limit: max(20, p.Limit), ChamberURL: p.ChamberURL})
+		prog(fmt.Sprintf("%s: %d businesses", name, len(bs)))
+		if err != nil {
+			errs = append(errs, name+": "+err.Error())
+		}
+		all = append(all, bs...)
+	}
+
 	if len(all) == 0 && len(errs) > 0 {
 		return fail(fmt.Errorf("%s", strings.Join(errs, "; ")))
 	}
 	all = dedupe.Merge(all)
+	// checkpoint raw scan results so an interrupted job can resume without rescanning
+	_ = r.Store.UpsertLeads(leadKey, all)
+	return r.finish(ctx, jobID, p, &place, leadKey, all, errs, prog)
+}
+
+// RunImport enriches+scores+ranks leads imported from a CSV (no scanning).
+// Location (optional) is geocoded for the Maps rank check.
+func (r *Runner) RunImport(ctx context.Context, jobID int64, p model.JobParams, bs []model.Business) ([]model.Business, error) {
+	Normalize(&p)
+	prog := func(s string) {
+		log.Printf("job %d: %s", jobID, s)
+		_ = r.Store.UpdateJob(jobID, "running", s, "")
+	}
+	var place *osm.Place
+	if p.Location != "" {
+		if pl, err := r.OSM.GeocodePlace(ctx, PlaceQuery(p), p.Country); err == nil {
+			place = &pl
+		}
+	}
+	leadKey := coverage.LeadKey("import:"+p.Location, p.Category)
+	all := dedupe.Merge(bs)
+	prog(fmt.Sprintf("imported %d rows -> %d unique", len(bs), len(all)))
+	return r.finish(ctx, jobID, p, place, leadKey, all, nil, prog)
+}
+
+func (r *Runner) finish(ctx context.Context, jobID int64, p model.JobParams, place *osm.Place, leadKey string, all []model.Business, errs []string, prog func(string)) ([]model.Business, error) {
+	fail := func(err error) ([]model.Business, error) {
+		_ = r.Store.UpdateJob(jobID, "failed", "", err.Error())
+		return nil, err
+	}
 
 	// Enrich leads that are new or were enriched by an older version.
 	// Always enrich ALL candidates; MaxResults only selects the best N afterwards.
@@ -189,11 +245,11 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 	if conc <= 0 {
 		conc = 4
 	}
-	var reg *social.Registry
+	opts := EnrichOpts{Fetch: r.fetcher(), Verify: verify.New(p.SMTPCheck), SMTP: p.SMTPCheck, MaxPages: p.MaxPages,
+		JS: p.JSRender, RDAP: p.RDAP, CommonCrawl: p.CommonCrawl, Guess: p.GuessEmails}
 	if p.Social {
-		reg = social.Default()
+		opts.Social = social.Default(r.fetcher())
 	}
-	ver := verify.New(p.SMTPCheck)
 	sem := make(chan struct{}, conc)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -204,14 +260,19 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 		go func(b *model.Business) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			Enrich(ctx, b, reg, ver)
+			Enrich(ctx, b, opts)
 			mu.Lock()
 			if b.Reachable {
 				reachable++
 			}
 			done++
 			if done%3 == 0 || done == len(toEnrich) {
-				prog(fmt.Sprintf("enriched %d/%d", done, len(toEnrich)))
+				prog(fmt.Sprintf("enriched %d/%d (%d reachable)", done, len(toEnrich), reachable))
+			}
+			if done%10 == 0 { // checkpoint for resume
+				snap := make([]model.Business, len(all))
+				copy(snap, all)
+				_ = r.Store.UpsertLeads(leadKey, snap)
 			}
 			mu.Unlock()
 		}(b)
@@ -224,7 +285,7 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 	}
 	// Rank + score every reachable lead, then pick the top N.
 	out := SelectOutput(all, 0)
-	if p.UseGMaps && r.GMapsURL != "" {
+	if p.UseGMaps && r.GMapsURL != "" && place != nil {
 		AssignRanks(ctx, out, p.Category, p.CellSizeM, place.Lat, place.Lon, GMapsRankSearcher(r.GMapsURL, p.Lang), prog)
 	}
 	totalReach := 0
@@ -251,7 +312,7 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 }
 
 // EnrichVersion bumps when enrichment adds new signals (forces re-crawl of cached leads).
-const EnrichVersion = 3
+const EnrichVersion = 4
 
 // SelectOutput sorts reachable leads by score.Less (email tier, then GMB score)
 // and keeps the best maxResults (0 = all). Unreachable leads are NOT capped:
@@ -388,34 +449,117 @@ func max(a, b int) int {
 	return b
 }
 
-// Enrich crawls the website, optional socials, verifies emails and scores.
-func Enrich(ctx context.Context, b *model.Business, reg *social.Registry, ver *verify.Verifier) {
+// EnrichOpts controls free email enrichment.
+type EnrichOpts struct {
+	Fetch       *fetch.Client
+	Social      *social.Registry
+	Verify      *verify.Verifier
+	SMTP        bool
+	MaxPages    int
+	JS, RDAP    bool
+	CommonCrawl bool
+	Guess       bool
+}
+
+// Enrich crawls the website (deep + sitemap + JS fallback), public socials,
+// RDAP, Common Crawl, optional pattern guess; records email sources; scores.
+func Enrich(ctx context.Context, b *model.Business, o EnrichOpts) {
+	if o.Fetch == nil {
+		o.Fetch = fetch.New(fetch.DefaultOptions())
+	}
+	if b.EmailSources == nil {
+		b.EmailSources = map[string]string{}
+	}
+	for _, e := range b.Emails {
+		if _, ok := b.EmailSources[e]; !ok {
+			b.EmailSources[e] = firstSource(b)
+		}
+	}
+	addAll := func(m map[string]string) {
+		for e, src := range m {
+			if _, ok := b.EmailSources[e]; !ok {
+				b.EmailSources[e] = src
+			}
+			b.Emails = dedupe.Union(b.Emails, []string{e})
+		}
+	}
+	domain := dedupe.Domain(b.Website)
+	var names []string
+	reached := false
 	if b.Website != "" {
-		cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		res := crawl.Site(cctx, b.Website, dedupe.Domain(b.Website), crawl.DefaultOptions())
+		cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		res := crawl.Site(cctx, b.Website, domain, crawl.Options{MaxPages: o.MaxPages, Sitemap: true, JS: o.JS, Fetch: o.Fetch})
 		cancel()
+		reached = res.Reached
 		b.SiteReached, b.HTTPS, b.LoadMS, b.HasTitle, b.HasMetaDesc = res.Reached, res.HTTPS, res.LoadMS, res.HasTitle, res.HasMetaDesc
 		b.HasViewport, b.HasLBSchema, b.HasMapEmbed, b.LinksToMaps = res.HasViewport, res.HasSchema, res.HasMapEmbed, res.LinksToMaps
 		b.NAPIssues = nil
 		if res.Reached && b.HasSource("gmaps") {
 			b.NAPIssues = crawl.NAPIssues(b.Name, b.Address, b.Phone, res.Text)
 		}
-		b.Emails = dedupe.Union(b.Emails, res.Emails)
+		addAll(res.EmailSrc)
 		b.Socials = dedupe.Union(b.Socials, res.Socials)
+		names = res.Names
 	}
-	if reg != nil && len(b.Socials) > 0 {
-		b.Emails = dedupe.Union(b.Emails, reg.Enrich(ctx, b.Socials))
+	if o.Social != nil && len(b.Socials) > 0 && !hasReal(b) {
+		addAll(o.Social.Enrich(ctx, b.Socials))
 	}
-	b.Emails = crawl.Rank(b.Emails, dedupe.Domain(b.Website))
+	if o.RDAP && domain != "" && !hasReal(b) {
+		m := map[string]string{}
+		for _, e := range rdap.Emails(ctx, o.Fetch, domain) {
+			m[e] = "rdap"
+		}
+		addAll(m)
+	}
+	if o.CommonCrawl && domain != "" && (!reached || !hasReal(b)) {
+		cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		addAll(commoncrawl.Emails(cctx, o.Fetch, domain, 3))
+		cancel()
+	}
+	if o.Guess && !hasReal(b) && domain != "" {
+		m := map[string]string{}
+		for _, e := range crawl.GuessEmails(names, domain) {
+			m[e] = "guessed"
+		}
+		addAll(m)
+	}
+	b.Emails = crawl.Rank(b.Emails, domain)
 	b.EmailStatus = map[string]string{}
-	if ver != nil {
+	if o.Verify != nil {
 		for _, e := range b.Emails {
-			b.EmailStatus[e] = ver.Check(e)
+			b.EmailStatus[e] = o.Verify.Check(e)
 		}
 	}
-	score.Reachability(b, dedupe.Domain(b.Website))
+	// guessed only counts when SMTP-verified mailbox; otherwise keep but never primary
+	for _, e := range b.Emails {
+		if b.EmailSources[e] == "guessed" && (!o.SMTP || b.EmailStatus[e] != "valid") {
+			b.EmailStatus[e] = "guessed"
+		}
+	}
+	score.Reachability(b, domain)
 	score.Compute(b)
 	b.EnrichVer = EnrichVersion
+}
+
+func hasReal(b *model.Business) bool {
+	for _, e := range b.Emails {
+		if b.EmailSources[e] != "guessed" {
+			return true
+		}
+	}
+	return false
+}
+
+func firstSource(b *model.Business) string {
+	for _, s := range b.Sources {
+		if s == "import" {
+			return "import"
+		}
+	}
+	if len(b.Sources) > 0 {
+		return b.Sources[0]
+	}
+	return "listing"
 }
 
 func selectedCount(total, n int) int {

@@ -133,3 +133,11 @@ func TestReachabilityPrefersPersonal(t *testing.T) {
 		t.Fatal(bs[0])
 	}
 }
+
+func TestGuessedNeverPrimary(t *testing.T) {
+	b := model.Business{Emails: []string{"maria@shop.test"}, EmailStatus: map[string]string{"maria@shop.test": "guessed"}}
+	Reachability(&b, "shop.test")
+	if b.Reachable || b.BestEmail != "" {
+		t.Fatal(b.BestEmail)
+	}
+}

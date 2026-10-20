@@ -1,78 +1,119 @@
-// Package social provides pluggable, OFF-by-default enrichment of social
-// profile links (Instagram/Facebook/TikTok). It only performs anonymous GETs
-// of public profile pages (no login, no cookies, no API abuse) and extracts
-// emails visible in the returned HTML (bio / meta description). Platforms
-// often return a login wall; in that case nothing is extracted. Respect each
-// platform's Terms of Service.
+// Package social provides pluggable, OFF-by-default enrichment of public
+// social pages (Facebook/Instagram/TikTok). Anonymous GETs only (no login,
+// no cookies). Platforms often return a login wall; then nothing is found.
 package social
 
 import (
 	"context"
-	"io"
-	"net/http"
+	"net/url"
 	"strings"
-	"time"
 
 	"github.com/timmy2048/leadfinder/internal/crawl"
+	"github.com/timmy2048/leadfinder/internal/fetch"
 )
 
-// Enricher extracts emails from a profile URL.
+// Enricher extracts emails (email -> source label) from a profile URL.
 type Enricher interface {
 	Name() string
 	Match(url string) bool
-	Emails(ctx context.Context, url string) ([]string, error)
+	Emails(ctx context.Context, f *fetch.Client, url string) map[string]string
 }
 
 // Registry of enrichers.
-type Registry struct{ list []Enricher }
+type Registry struct {
+	list []Enricher
+	F    *fetch.Client
+}
 
 func (r *Registry) Register(e Enricher) { r.list = append(r.list, e) }
 
-// Default returns a registry with public-page enrichers for the 3 platforms.
-func Default() *Registry {
-	r := &Registry{}
-	hc := &http.Client{Timeout: 15 * time.Second}
-	for _, p := range []struct{ name, host string }{{"instagram", "instagram.com"}, {"facebook", "facebook.com"}, {"tiktok", "tiktok.com"}} {
-		r.Register(&PublicPage{N: p.name, Host: p.host, HTTP: hc})
-	}
+// Default returns Facebook (m./mbasic about variants), Instagram and TikTok public-page enrichers.
+func Default(f *fetch.Client) *Registry {
+	r := &Registry{F: f}
+	r.Register(facebook{})
+	r.Register(&PublicPage{N: "instagram", Host: "instagram.com"})
+	r.Register(&PublicPage{N: "tiktok", Host: "tiktok.com"})
 	return r
 }
 
-// Enrich runs matching enrichers over the given links; errors are ignored.
-func (r *Registry) Enrich(ctx context.Context, links []string) []string {
-	var out []string
+// Enrich runs matching enrichers; one profile per platform.
+func (r *Registry) Enrich(ctx context.Context, links []string) map[string]string {
+	out := map[string]string{}
+	done := map[string]bool{}
 	for _, l := range links {
 		for _, e := range r.list {
-			if e.Match(l) {
-				if em, err := e.Emails(ctx, l); err == nil {
-					out = append(out, em...)
+			if done[e.Name()] || !e.Match(l) {
+				continue
+			}
+			done[e.Name()] = true
+			for em, src := range e.Emails(ctx, r.F, l) {
+				if _, ok := out[em]; !ok {
+					out[em] = src
 				}
-				time.Sleep(2 * time.Second) // be gentle
 			}
 		}
 	}
 	return out
 }
 
-// PublicPage fetches a public profile page anonymously.
-type PublicPage struct {
-	N, Host string
-	HTTP    *http.Client
+// PublicPage fetches a public profile page anonymously (bio/meta description).
+type PublicPage struct{ N, Host string }
+
+func (p *PublicPage) Name() string        { return p.N }
+func (p *PublicPage) Match(u string) bool { return strings.Contains(strings.ToLower(u), p.Host) }
+func (p *PublicPage) Emails(ctx context.Context, f *fetch.Client, u string) map[string]string {
+	out := map[string]string{}
+	r, err := f.Get(ctx, u, nil)
+	if err != nil || r.Status >= 400 {
+		return out
+	}
+	for _, e := range crawl.ExtractEmails(string(r.Body)) {
+		out[e] = p.N
+	}
+	return out
 }
 
-func (p *PublicPage) Name() string { return p.N }
-func (p *PublicPage) Match(u string) bool {
+type facebook struct{}
+
+func (facebook) Name() string { return "facebook" }
+func (facebook) Match(u string) bool {
 	l := strings.ToLower(u)
-	return strings.Contains(l, p.Host) || (p.Host == "facebook.com" && strings.Contains(l, "fb.com"))
+	return strings.Contains(l, "facebook.com/") || strings.Contains(l, "fb.com/")
 }
-func (p *PublicPage) Emails(ctx context.Context, u string) ([]string, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; leadfinder/0.1)")
-	resp, err := p.HTTP.Do(req)
+
+// FBVariants returns about/contact URLs on www, m. and mbasic hosts.
+func FBVariants(raw string) []string {
+	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, err
+		return nil
 	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 3<<20))
-	return crawl.ExtractEmails(string(b)), nil
+	path := strings.TrimRight(u.Path, "/")
+	if path == "" || strings.Contains(path, "/sharer") {
+		return nil
+	}
+	q := ""
+	if strings.HasPrefix(path, "/profile.php") {
+		q = "?" + u.RawQuery
+		return []string{"https://m.facebook.com" + path + q + "&sk=about", "https://mbasic.facebook.com" + path + q + "&v=info"}
+	}
+	return []string{"https://m.facebook.com" + path + "/about", "https://mbasic.facebook.com" + path + "/about", "https://www.facebook.com" + path + "/about_contact_and_basic_info"}
+}
+
+func (facebook) Emails(ctx context.Context, f *fetch.Client, u string) map[string]string {
+	out := map[string]string{}
+	for _, v := range FBVariants(u) {
+		r, err := f.Get(ctx, v, nil)
+		if err != nil || r.Status >= 400 {
+			continue
+		}
+		for _, e := range crawl.ExtractEmails(string(r.Body)) {
+			if !strings.HasSuffix(e, "facebook.com") && !strings.HasSuffix(e, "fb.com") {
+				out[e] = "facebook"
+			}
+		}
+		if len(out) > 0 {
+			break
+		}
+	}
+	return out
 }

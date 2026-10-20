@@ -18,6 +18,9 @@ var (
 	obfAtW     = regexp.MustCompile(`(?i)([a-z0-9._%+\-]+)\s+at\s+([a-z0-9\-]+)\s+dot\s+([a-z]{2,24})\b`)
 	cfAttr     = regexp.MustCompile(`data-cfemail="([0-9a-fA-F]+)"`)
 	cfHref     = regexp.MustCompile(`/cdn-cgi/l/email-protection#([0-9a-fA-F]+)`)
+	jsConcat   = regexp.MustCompile(`["']\s*\+\s*["']`)
+	dataUD     = regexp.MustCompile(`(?i)data-(?:user|name)=["']([a-z0-9._%+\-]+)["'][^>]*?data-domain=["']([a-z0-9.\-]+\.[a-z]{2,24})["']`)
+	revRe      = regexp.MustCompile(`(?i)unicode-bidi:\s*bidi-override[^>]*>([^<]{5,80})<`)
 	badTLDs    = map[string]bool{"png": true, "jpg": true, "jpeg": true, "gif": true, "webp": true, "svg": true, "css": true, "js": true, "ico": true, "avif": true, "mp4": true, "pdf": true}
 	badDomains = []string{"sentry", "wixpress.com", "example.com", "example.org", "domain.com", "email.com", "yourdomain", "godaddy.com", "sentry.io", "schema.org", "w3.org", "cloudflare.com", "googleusercontent", "@2x", "@3x"}
 )
@@ -53,7 +56,17 @@ func ExtractEmails(raw string) []string {
 	for _, m := range cfHref.FindAllStringSubmatch(raw, -1) {
 		cands = append(cands, DecodeCF(m[1]))
 	}
-	text := html.UnescapeString(raw)
+	for _, m := range dataUD.FindAllStringSubmatch(raw, -1) {
+		cands = append(cands, m[1]+"@"+m[2])
+	}
+	for _, m := range revRe.FindAllStringSubmatch(raw, -1) {
+		r := []rune(m[1])
+		for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
+			r[i], r[j] = r[j], r[i]
+		}
+		cands = append(cands, emailRe.FindAllString(string(r), -1)...)
+	}
+	text := html.UnescapeString(jsConcat.ReplaceAllString(raw, ""))
 	if u, err := url.QueryUnescape(text); err == nil {
 		text = text + "\n" + u
 	}

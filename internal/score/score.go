@@ -74,7 +74,7 @@ func Reachability(b *model.Business, domain string) {
 		b.EmailTypes[e] = emailtype.Classify(e)
 	}
 	for _, e := range b.Emails {
-		if b.EmailStatus != nil && b.EmailStatus[e] == "invalid" {
+		if b.EmailStatus != nil && (b.EmailStatus[e] == "invalid" || b.EmailStatus[e] == "guessed") {
 			continue
 		}
 		b.Reachable = true

@@ -143,6 +143,14 @@ func fill(dst, src *model.Business) {
 		dst.EnrichVer = 0 // new Maps data: re-enrich for NAP check
 	}
 	dst.Emails = Union(dst.Emails, src.Emails)
+	for e, v := range src.EmailSources {
+		if dst.EmailSources == nil {
+			dst.EmailSources = map[string]string{}
+		}
+		if _, ok := dst.EmailSources[e]; !ok {
+			dst.EmailSources[e] = v
+		}
+	}
 	dst.Socials = Union(dst.Socials, src.Socials)
 	dst.Sources = Union(dst.Sources, src.Sources)
 }
