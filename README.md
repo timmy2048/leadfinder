@@ -3,7 +3,7 @@
 个人用的 B2B 商家线索工具（适合做 SEO 服务找客户）。输入**行业 + 地点**，从 **Google Maps**（通过 [gosom/google-maps-scraper](https://github.com/gosom/google-maps-scraper)）和 **OpenStreetMap**（Overpass API）拉取商家信息，然后：
 
 - 按域名、电话、坐标+名称去重合并
-- 用 [colly](https://github.com/gocolly/colly) 爬商家官网首页和联系页提取邮箱。支持 `mailto:`、正则匹配、`[at]`/`(dot)` 这类混淆写法、Cloudflare `data-cfemail` 解码，优先排同域名邮箱
+- 用 [colly](https://github.com/gocolly/colly) 爬商家官网首页和联系页提取邮箱。支持 `mailto:`、正则匹配、`[at]`/`(dot)` 这类混淆写法、Cloudflare `data-cfemail` 解码；所有邮箱都保留，按「个人 > 具名 > 通用」排优先级（见下文「邮箱优先级」）
 - 可选：从商家的 Instagram/Facebook/TikTok 主页补抓邮箱。只做匿名公开访问，不登录，**默认关闭**
 - 用 [AfterShip/email-verifier](https://github.com/AfterShip/email-verifier) 验证邮箱：语法、MX 记录、一次性邮箱；SMTP 检查可选
 - **GMB 机会分**（Google Business Profile 优化机会，越高越值得联系）：只对**有邮箱**的商家计算，每家列出可解释的「可提升点」（中文标签 + 英文开发信话术 + 权重），总分 = 权重之和。没有邮箱的商家单独放进「暂不可触达」列表，不参与主排序
@@ -14,7 +14,17 @@
 
 ## 可触达 + GMB 机会分
 
-主列表 = 至少有一个邮箱的商家（优先与官网同域名的邮箱，如 `info@店名.com`，标「✓同域」）。网页任务页有三个标签：**可触达 / 暂不可触达 / 全部**，CSV 也可分别导出（`/jobs/ID/csv`、`?view=unreachable`、`?view=all`）。排序：可触达在前，按 GMB 分从高到低。
+主列表 = 至少有一个邮箱的商家。网页任务页有三个标签：**可触达 / 暂不可触达 / 全部**，CSV 也可分别导出（`/jobs/ID/csv`、`?view=unreachable`、`?view=all`）。排序：可触达在前，**先按邮箱优先级档位，再按 GMB 分从高到低**。
+
+### 邮箱优先级（email_type）
+
+所有抓到的邮箱都会保留并列出，但首选邮箱（`best_email`）和排序按下面三档：
+
+1. `personal`（个人）：免费邮箱（gmail / outlook / hotmail / live / yahoo / icloud / aol 等），或本地部分像人名（`john@`、`j.smith@`、`maria.lopez@`、`johnsmith@`），任何域名都算——通常是店主本人在收
+2. `named`（具名）：其他非通用邮箱，如 `columbiacafe@crg1905.com`
+3. `generic`（通用/角色邮箱）：`info@`、`contact@`、`hello@`、`reservations@`、`sales@`、`support@`、`admin@`、`office@`、`events@`、`booking@`、`email@` 等，以及 `info2@`、`info.miami@` 这类变体。照样收录，但永远不排第一
+
+同一档内同域名邮箱优先。网页里首选邮箱后显示 `[personal]` 等标签，每个邮箱后也标出类型；CSV 新增 `email_type`（首选邮箱的类型）和 `email_types`（`邮箱:类型;…`）两列。规则在 `internal/emailtype` 里可改；旧任务打开或导出时会自动按新规则重排。
 
 | key | 中文 | 权重 | 需谷歌地图数据 |
 |---|---|---|---|

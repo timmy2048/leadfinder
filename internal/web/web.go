@@ -6,6 +6,8 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"github.com/timmy2048/leadfinder/internal/dedupe"
+	"github.com/timmy2048/leadfinder/internal/score"
 	"html/template"
 	"net/http"
 	"strconv"
@@ -103,6 +105,7 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bs, _ := s.Store.Businesses(j.ID)
+	score.Rerank(bs, dedupe.Domain)
 	reach, unreach := pipeline.Partition(bs)
 	view := r.URL.Query().Get("view") // "" = reachable, "unreachable", "all"
 	rows := reach
@@ -117,6 +120,7 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) csv(w http.ResponseWriter, r *http.Request) {
 	bs, _ := s.Store.Businesses(s.id(r))
+	score.Rerank(bs, dedupe.Domain)
 	reach, unreach := pipeline.Partition(bs)
 	name := "leads"
 	switch r.URL.Query().Get("view") {

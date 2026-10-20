@@ -3,6 +3,9 @@
 package score
 
 import (
+	"sort"
+
+	"github.com/timmy2048/leadfinder/internal/emailtype"
 	"strings"
 
 	"github.com/timmy2048/leadfinder/internal/model"
@@ -63,13 +66,18 @@ func IsGeneric(c string) bool { return genericCats[strings.ToLower(strings.TrimS
 
 // Reachability sets Reachable, BestEmail, SameDomain (emails pre-ranked, same-domain first).
 func Reachability(b *model.Business, domain string) {
-	b.Reachable, b.BestEmail, b.SameDomain = false, "", false
+	b.Reachable, b.BestEmail, b.SameDomain, b.EmailType = false, "", false, ""
+	b.EmailTypes = map[string]string{}
+	for _, e := range b.Emails {
+		b.EmailTypes[e] = emailtype.Classify(e)
+	}
 	for _, e := range b.Emails {
 		if b.EmailStatus != nil && b.EmailStatus[e] == "invalid" {
 			continue
 		}
 		b.Reachable = true
 		b.BestEmail = e
+		b.EmailType = b.EmailTypes[e]
 		at := strings.LastIndex(e, "@")
 		b.SameDomain = domain != "" && at >= 0 && (e[at+1:] == domain || strings.HasSuffix(e[at+1:], "."+domain))
 		return
@@ -146,13 +154,26 @@ func Compute(b *model.Business) {
 	}
 }
 
-// Less orders reachable first, then score desc, then same-domain email.
+// Less orders reachable first, then email tier (personal>named>generic), then score desc, then same-domain email.
 func Less(a, b model.Business) bool {
 	if a.Reachable != b.Reachable {
 		return a.Reachable
+	}
+	if ta, tb := emailtype.Tier(a.EmailType), emailtype.Tier(b.EmailType); a.Reachable && ta != tb {
+		return ta < tb
 	}
 	if a.GMBScore != b.GMBScore {
 		return a.GMBScore > b.GMBScore
 	}
 	return a.SameDomain && !b.SameDomain
+}
+
+// Rerank re-classifies emails (for leads saved by older versions) and re-sorts.
+func Rerank(bs []model.Business, domainOf func(string) string) {
+	for i := range bs {
+		d := domainOf(bs[i].Website)
+		bs[i].Emails = emailtype.Rank(bs[i].Emails, d)
+		Reachability(&bs[i], d)
+	}
+	sort.SliceStable(bs, func(i, j int) bool { return Less(bs[i], bs[j]) })
 }

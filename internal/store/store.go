@@ -267,14 +267,14 @@ func (s *Store) UpsertLeads(leadKey string, bs []model.Business) error {
 func WriteCSV(w io.Writer, bs []model.Business) error {
 	_, _ = w.Write([]byte("\ufeff"))
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"name", "category", "address", "phone", "website", "emails", "email_status", "socials", "sources", "review_count", "rating", "https", "load_ms", "has_title", "has_meta_desc", "reachable", "best_email", "same_domain_email", "gmb_score", "points_zh", "points_en", "point_keys", "needs_gmaps", "maps_rating_photos_hours", "lat", "lon"})
+	_ = cw.Write([]string{"name", "category", "address", "phone", "website", "emails", "email_status", "socials", "sources", "review_count", "rating", "https", "load_ms", "has_title", "has_meta_desc", "reachable", "best_email", "email_type", "email_types", "same_domain_email", "gmb_score", "points_zh", "points_en", "point_keys", "needs_gmaps", "maps_rating_photos_hours", "lat", "lon"})
 	for _, b := range bs {
 		var st []string
 		for _, e := range b.Emails {
 			st = append(st, e+":"+orDash(b.EmailStatus[e]))
 		}
 		_ = cw.Write([]string{b.Name, b.Category, b.Address, b.Phone, b.Website, strings.Join(b.Emails, ";"), strings.Join(st, ";"), strings.Join(b.Socials, ";"), strings.Join(b.Sources, ";"),
-			fmt.Sprint(b.ReviewCount), fmt.Sprint(b.Rating), fmt.Sprint(b.HTTPS), fmt.Sprint(b.LoadMS), fmt.Sprint(b.HasTitle), fmt.Sprint(b.HasMetaDesc), fmt.Sprint(b.Reachable), b.BestEmail, fmt.Sprint(b.SameDomain), fmt.Sprint(b.GMBScore), joinPts(b.Points, "zh"), joinPts(b.Points, "en"), joinPts(b.Points, "key"), needs(b),
+			fmt.Sprint(b.ReviewCount), fmt.Sprint(b.Rating), fmt.Sprint(b.HTTPS), fmt.Sprint(b.LoadMS), fmt.Sprint(b.HasTitle), fmt.Sprint(b.HasMetaDesc), fmt.Sprint(b.Reachable), b.BestEmail, b.EmailType, joinTypes(b), fmt.Sprint(b.SameDomain), fmt.Sprint(b.GMBScore), joinPts(b.Points, "zh"), joinPts(b.Points, "en"), joinPts(b.Points, "key"), needs(b),
 			fmt.Sprintf("photos=%d hours=%v cats=%s", b.PhotoCount, b.HasHours, strings.Join(b.Categories, "|")),
 			fmt.Sprintf("%.6f", b.Lat), fmt.Sprintf("%.6f", b.Lon)})
 	}
@@ -313,4 +313,12 @@ func joinPts(ps []model.Point, f string) string {
 		sep = " | "
 	}
 	return strings.Join(out, sep)
+}
+
+func joinTypes(b model.Business) string {
+	var out []string
+	for _, e := range b.Emails {
+		out = append(out, e+":"+orDash(b.EmailTypes[e]))
+	}
+	return strings.Join(out, ";")
 }

@@ -3,10 +3,10 @@ package crawl
 
 import (
 	"encoding/hex"
+	"github.com/timmy2048/leadfinder/internal/emailtype"
 	"html"
 	"net/url"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -95,19 +95,8 @@ func Valid(e string) bool {
 	return true
 }
 
-// Rank sorts emails: same-domain first, then role/personal. Ties keep order.
-func Rank(emails []string, domain string) []string {
-	out := append([]string{}, emails...)
-	score := func(e string) int {
-		d := e[strings.LastIndex(e, "@")+1:]
-		if domain != "" && (d == domain || strings.HasSuffix(d, "."+domain) || strings.HasSuffix(domain, "."+d)) {
-			return 0
-		}
-		return 1
-	}
-	sort.SliceStable(out, func(i, j int) bool { return score(out[i]) < score(out[j]) })
-	return out
-}
+// Rank sorts emails by priority tier (personal > named > generic), then same-domain.
+func Rank(emails []string, domain string) []string { return emailtype.Rank(emails, domain) }
 
 var contactWords = []string{"contact", "kontakt", "contacto", "contatti", "about", "impressum", "imprint", "team", "legal", "mentions", "uber-uns", "about-us", "联系", "关于", "nous-contacter", "get-in-touch", "reach"}
 

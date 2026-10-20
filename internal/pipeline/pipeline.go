@@ -173,6 +173,8 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 		if all[i].EmailStatus == nil || all[i].EnrichVer < EnrichVersion {
 			toEnrich = append(toEnrich, &all[i])
 		} else {
+			all[i].Emails = crawl.Rank(all[i].Emails, dedupe.Domain(all[i].Website))
+			score.Reachability(&all[i], dedupe.Domain(all[i].Website))
 			score.Compute(&all[i])
 			if all[i].Reachable {
 				reachable++
@@ -403,9 +405,6 @@ func Enrich(ctx context.Context, b *model.Business, reg *social.Registry, ver *v
 		b.Emails = dedupe.Union(b.Emails, reg.Enrich(ctx, b.Socials))
 	}
 	b.Emails = crawl.Rank(b.Emails, dedupe.Domain(b.Website))
-	if len(b.Emails) > 5 {
-		b.Emails = b.Emails[:5]
-	}
 	b.EmailStatus = map[string]string{}
 	if ver != nil {
 		for _, e := range b.Emails {

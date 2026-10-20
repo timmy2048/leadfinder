@@ -44,13 +44,15 @@ type Business struct {
 	LinksToMaps bool     `json:"links_to_maps"`
 	NAPIssues   []string `json:"nap_issues,omitempty"` // phone/address/name
 	// GMB opportunity
-	Reachable  bool    `json:"reachable"`
-	BestEmail  string  `json:"best_email,omitempty"`
-	SameDomain bool    `json:"same_domain_email"`
-	GMBScore   int     `json:"gmb_score"`
-	Points     []Point `json:"points,omitempty"`
-	NeedsGMaps bool    `json:"needs_gmaps"`
-	EnrichVer  int     `json:"enrich_ver"` // bump to force re-enrichment of cached leads // only OSM data: Maps-profile checks skipped
+	Reachable  bool              `json:"reachable"`
+	BestEmail  string            `json:"best_email,omitempty"`
+	SameDomain bool              `json:"same_domain_email"`
+	EmailType  string            `json:"email_type,omitempty"` // personal / named / generic (of BestEmail)
+	EmailTypes map[string]string `json:"email_types,omitempty"`
+	GMBScore   int               `json:"gmb_score"`
+	Points     []Point           `json:"points,omitempty"`
+	NeedsGMaps bool              `json:"needs_gmaps"`
+	EnrichVer  int               `json:"enrich_ver"` // bump to force re-enrichment of cached leads // only OSM data: Maps-profile checks skipped
 }
 
 // Point is one explainable improvement opportunity.

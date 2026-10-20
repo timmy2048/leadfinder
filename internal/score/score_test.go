@@ -109,3 +109,27 @@ func TestUnknownPhotosNotPenalised(t *testing.T) {
 		t.Fatal("photos unknown must not be flagged")
 	}
 }
+
+func TestSortTierBeforeScore(t *testing.T) {
+	bs := []model.Business{
+		{Name: "generic", Reachable: true, GMBScore: 50, EmailType: "generic"},
+		{Name: "named", Reachable: true, GMBScore: 20, EmailType: "named"},
+		{Name: "personal", Reachable: true, GMBScore: 5, EmailType: "personal"},
+		{Name: "personal2", Reachable: true, GMBScore: 30, EmailType: "personal"},
+	}
+	sort.SliceStable(bs, func(i, j int) bool { return Less(bs[i], bs[j]) })
+	got := []string{bs[0].Name, bs[1].Name, bs[2].Name, bs[3].Name}
+	if got[0] != "personal2" || got[1] != "personal" || got[2] != "named" || got[3] != "generic" {
+		t.Fatal(got)
+	}
+}
+
+func TestReachabilityPrefersPersonal(t *testing.T) {
+	b := model.Business{Emails: []string{"info@shop.com", "mike@shop.com"}}
+	Rerank([]model.Business{b}, func(string) string { return "shop.com" })
+	bs := []model.Business{b}
+	Rerank(bs, func(string) string { return "shop.com" })
+	if bs[0].BestEmail != "mike@shop.com" || bs[0].EmailType != "personal" || len(bs[0].Emails) != 2 {
+		t.Fatal(bs[0])
+	}
+}

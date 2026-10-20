@@ -40,7 +40,7 @@ func TestExtractEmails(t *testing.T) {
 
 func TestRank(t *testing.T) {
 	got := Rank([]string{"a@gmail.com", "b@shop.com"}, "shop.com")
-	if !reflect.DeepEqual(got, []string{"b@shop.com", "a@gmail.com"}) {
+	if !reflect.DeepEqual(got, []string{"a@gmail.com", "b@shop.com"}) {
 		t.Fatal(got)
 	}
 }
