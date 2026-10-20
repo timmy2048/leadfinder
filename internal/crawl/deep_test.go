@@ -40,9 +40,6 @@ func TestSiteDeepCrawlSources(t *testing.T) {
 	if len(res.Names) == 0 || res.Names[0] != "maria lopez" {
 		t.Errorf("names %v", res.Names)
 	}
-	if g := GuessEmails(res.Names, "shop.test"); len(g) != 2 || g[0] != "maria@shop.test" {
-		t.Errorf("guess %v", g)
-	}
 }
 
 func TestObfuscations(t *testing.T) {

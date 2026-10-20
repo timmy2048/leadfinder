@@ -15,7 +15,7 @@ type Business struct {
 	Phone    string   `json:"phone"`
 	Website  string   `json:"website"`
 	Emails   []string `json:"emails"`
-	// EmailSources: email -> where it was found (site:/contact, sitemap:/team, js:/, facebook, instagram, rdap, commoncrawl:/contact, import, guessed)
+	// EmailSources: email -> where it was found (site:/contact, sitemap:/team, import)
 	EmailSources map[string]string `json:"email_sources,omitempty"`
 	Socials      []string          `json:"socials"`
 	Sources      []string          `json:"sources"`
@@ -92,7 +92,6 @@ type JobParams struct {
 	MaxResults  int    `json:"max_results"` // pick best N reachable leads after full scan (0 = all)
 	UseGMaps    bool   `json:"use_gmaps"`
 	UseOSM      bool   `json:"use_osm"`
-	Social      bool   `json:"social"`
 	SMTPCheck   bool   `json:"smtp_check"`
 	GMapsMaxSec int    `json:"gmaps_max_sec"`
 	// Incremental coverage
@@ -100,14 +99,8 @@ type JobParams struct {
 	CellSizeM   int  `json:"cell_size_m"` // grid cell size meters
 	MaxCells    int  `json:"max_cells"`   // safety cap per source per job
 	// Free enrichment / extra sources
-	Directories []string `json:"directories,omitempty"` // yelp, yellowpages, tripadvisor, booking, opentable, chamber
-	ChamberURL  string   `json:"chamber_url,omitempty"`
-	MaxPages    int      `json:"max_pages"` // pages per website (default 12)
-	JSRender    bool     `json:"js_render"`
-	RDAP        bool     `json:"rdap"`
-	CommonCrawl bool     `json:"common_crawl"`
-	GuessEmails bool     `json:"guess_emails"`
-	ImportFile  string   `json:"import_file,omitempty"` // set for CSV-import jobs
+	MaxPages   int    `json:"max_pages"`             // pages per website (default 8)
+	ImportFile string `json:"import_file,omitempty"` // set for CSV-import jobs
 }
 
 // Job is a pipeline run.

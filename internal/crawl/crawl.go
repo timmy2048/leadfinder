@@ -10,15 +10,14 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/timmy2048/leadfinder/internal/fetch"
-	"github.com/timmy2048/leadfinder/internal/jsrender"
 )
 
 // Result of crawling one website.
 type Result struct {
 	Emails      []string
-	EmailSrc    map[string]string // email -> source label (site:/contact, sitemap:/team, js:/ ...)
+	EmailSrc    map[string]string // email -> source label (site:/contact, sitemap:/team ...)
 	Socials     []string
-	Names       []string // person names near owner/founder/chef words (for pattern guess)
+	Names       []string // person names near owner/founder/chef words
 	Reached     bool
 	HTTPS       bool
 	LoadMS      int64
@@ -37,11 +36,10 @@ type Result struct {
 type Options struct {
 	MaxPages int
 	Sitemap  bool
-	JS       bool // headless-Chrome fallback when no email found
 	Fetch    *fetch.Client
 }
 
-func DefaultOptions() Options { return Options{MaxPages: 12, Sitemap: true} }
+func DefaultOptions() Options { return Options{MaxPages: 8, Sitemap: true} }
 
 // CommonPaths are probed even when not linked from the homepage.
 var CommonPaths = []string{"/contact", "/contact-us", "/about", "/about-us", "/team", "/our-team", "/privacy-policy", "/privacy", "/impressum", "/legal"}
@@ -56,7 +54,7 @@ func Site(ctx context.Context, site, domain string, o Options) Result {
 		o.Fetch = fetch.New(fetch.DefaultOptions())
 	}
 	if o.MaxPages <= 0 {
-		o.MaxPages = 12
+		o.MaxPages = 8
 	}
 	if !strings.Contains(site, "://") {
 		site = "http://" + site
@@ -149,21 +147,6 @@ func Site(ctx context.Context, site, domain string, o Options) Result {
 		add(string(r.Body), it.src+":"+pu.Path)
 		if len(res.Emails) >= 3 && res.Pages >= 6 {
 			break
-		}
-	}
-	if o.JS && len(res.Emails) == 0 && ctx.Err() == nil && LooksSPA(home.Body) {
-		targets := []string{base.String()}
-		for _, l := range links {
-			if u, err := base.Parse(l); err == nil && sameHost(u) {
-				targets = append(targets, u.String())
-				break
-			}
-		}
-		for _, t := range targets {
-			if h, err := jsrender.Render(ctx, t); err == nil {
-				pu, _ := url.Parse(t)
-				add(h, "js:"+pu.Path)
-			}
 		}
 	}
 	res.Emails = Rank(res.Emails, domain)
@@ -274,22 +257,6 @@ func ExtractNames(raw string) []string {
 }
 
 var stopName = map[string]bool{"the": true, "and": true, "our": true, "with": true, "for": true, "his": true, "her": true, "coffee": true, "cafe": true, "restaurant": true, "kitchen": true, "team": true, "about": true, "from": true, "this": true, "that": true, "has": true, "was": true, "who": true}
-
-// GuessEmails builds first@domain / first.last@domain from names (lowest priority, label "guessed").
-func GuessEmails(names []string, domain string) []string {
-	if domain == "" {
-		return nil
-	}
-	var out []string
-	for _, n := range names {
-		p := strings.Fields(n)
-		if len(p) != 2 {
-			continue
-		}
-		out = append(out, p[0]+"@"+domain, p[0]+"."+p[1]+"@"+domain)
-	}
-	return dedup(out)
-}
 
 func dedup(in []string) []string {
 	seen := map[string]bool{}

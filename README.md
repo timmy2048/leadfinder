@@ -132,7 +132,6 @@ docker compose up -d --build
 | `-only-reachable` | 主 CSV 只放有邮箱的商家（默认 true）；设 false 则把暂不可触达的追加在后面 |
 | `-out-unreachable` | 另存「暂不可触达」CSV 的路径 |
 | `-osm` / `-gmaps-on` | 数据源开关（OSM 默认开） |
-| `-social` | 从社媒公开主页补抓邮箱（默认关） |
 | `-smtp` | SMTP 邮箱存在性检查，**需要 25 端口出站**（大多数家庭宽带和云服务器默认封禁，被封时结果会显示 unknown） |
 
 邮箱状态：`valid`（语法和 MX 正常；开 SMTP 时表示服务器确认可投递）、`risky`（一次性邮箱或 catch-all）、`invalid`、`unknown`（DNS/SMTP 查询失败）。
@@ -145,7 +144,6 @@ internal/osm          Nominatim 地理编码（含 bbox）+ Overpass 查询
 internal/gmaps        gosom REST 客户端、CSV 解析、原生二进制下载和启动
 internal/dedupe       去重合并
 internal/crawl        colly 爬官网、邮箱提取、SEO 信号
-internal/social       可插拔的社媒补全（Enricher 接口）
 internal/verify       邮箱验证
 internal/score        可触达判定 + GMB 机会分（提升点目录）
 internal/store        SQLite（任务、单次结果、coverage_cells、leads 库）+ CSV 导出
@@ -158,16 +156,11 @@ internal/web          Web 界面 + JSON API（/api/jobs、/api/coverage）
 全部免费、无需第三方付费 API。
 
 **提高邮箱命中率**（每个邮箱都会记录「邮箱来源」，网页和 CSV 都有 `email_source` 列）
-- 官网深度爬取：首页 + 页脚/导航里的联系类链接 + 常见路径（/contact、/about、/team、/privacy-policy、/impressum…）+ `sitemap.xml` 里的联系类页面，每站最多 `-max-pages`（默认 12）页。
+- 官网深度爬取：首页 + 页脚/导航里的联系类链接 + 常见路径（/contact、/about、/team、/privacy-policy、/impressum…）+ `sitemap.xml` 里的联系类页面，每站最多 `-max-pages`（默认 8）页。
 - 反混淆：Cloudflare email-protection、`[at]/(dot)`、HTML 实体、JS 字符串拼接、`data-user/data-domain`、CSS 反向文字。
-- JS 渲染兜底（`-js`）：静态 HTML 找不到邮箱且像 SPA/建站平台（Wix、Squarespace、Toast…）时，用本机 Chrome/Chromium 无头渲染（`--dump-dom`）。找不到浏览器时自动跳过，可用 `LF_CHROME` 指定路径。
-- 社媒公开页（`-social`）：Facebook 依次尝试 m./mbasic./www 的 about 页，Instagram/TikTok 抓公开主页简介。不登录，大多会遇到登录墙。
-- 域名 RDAP（`-rdap`）：查注册人/管理/技术联系人邮箱，隐私保护和注册商邮箱一律过滤。
-- Common Crawl（`-cc`）：官网打不开或没找到邮箱时，从 Common Crawl 公开存档取该域名的联系页/首页。
-- 按人名猜邮箱（`-guess`，默认关）：从页面「Owner/Founder/Chef: 名 姓」生成 `first@域名`、`first.last@域名`，来源标「猜测」。只有开了 `-smtp` 并且验证为 valid 才能当首选，否则不算可触达。
 
-**额外免费数据源**（`-dirs` 逗号分隔，网页上可勾选，每个都能单独开关）
-`yelp`、`yellowpages`、`tripadvisor`、`booking`、`opentable`、`chamber`（商会会员目录，支持 ChamberMaster/GrowthZone/Weblink 卡片；可用 `-chamber-url` 直接指定商会目录网址，否则通过 DuckDuckGo/Bing 搜索「<城市> chamber of commerce member directory」自动发现）。这些源只负责发现商家和网站/电话，邮箱仍然靠爬官网拿。⚠️ 这些站点普遍有反爬（403/验证码），机房 IP 基本会被拦，家用宽带或代理下成功率更高；被拦时任务照常完成，只在错误信息里记一笔。
+**已移除的来源（v3）**
+在坦帕实测（任务 #7）中，Yelp、TripAdvisor、Yellow Pages、Booking.com、OpenTable、商会目录自动搜索全部 0 条（robots 禁止或 403/验证码），社媒公开页（Facebook/Instagram）、RDAP/WHOIS、Common Crawl、JS 无头渲染兜底也没有多找到任何邮箱，按人名猜邮箱不算可触达。为避免拉长任务时间，这些代码已全部删除。现在数据源只有谷歌地图（gosom）+ OSM，邮箱只靠官网深度爬取（或导入 CSV）。
 
 **规模与速度**
 - `-c 8`：并发补全数；`-per-host-ms 700`：同一主机的最小请求间隔；`-retries 2`：遇到 429/5xx/网络错误时指数退避重试。
@@ -182,10 +175,7 @@ internal/web          Web 界面 + JSON API（/api/jobs、/api/coverage）
 能识别 Outscraper/Apify/PhantomBuster 的常见列名（name/title、phone、site/website、full_address/address、rating/totalScore、reviews/reviewsCount、email_1/emails/0…）。导入后照常补邮箱、打分、排序。网页首页也有上传表单。
 
 ### 服务条款风险（中文说明，请务必阅读）
-- Google 地图、Yelp、TripAdvisor、Booking.com、OpenTable、Yellow Pages、Facebook、Instagram、TikTok 的服务条款**普遍禁止自动抓取**，可能导致 IP/账号被封，严重时会收到法律函。本工具只抓公开页面、不登录、不绕过验证码，但这**不代表合规**，风险由使用者自担。
-- 商会目录属于会员信息，有的商会明确禁止批量采集或用于营销。
-- RDAP/WHOIS 数据按 ICANN 规定不得用于群发营销。
-- 「猜测」邮箱未经验证，直接群发会大量退信，伤害发信域名信誉。
+- Google 地图的服务条款**普遍禁止自动抓取**，可能导致 IP/账号被封，严重时会收到法律函。本工具只抓公开页面、不登录、不绕过验证码，但这**不代表合规**，风险由使用者自担。
 - 联系商家要遵守 CAN-SPAM（美国）、GDPR（欧盟）、CASL（加拿大）等法规：如实标明身份、提供退订、尊重退订。本工具**不发邮件**。
 
 ## 合规说明（请务必阅读）

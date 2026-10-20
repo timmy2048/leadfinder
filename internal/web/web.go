@@ -86,10 +86,9 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		Category: strings.TrimSpace(r.FormValue("category")), Location: strings.TrimSpace(r.FormValue("location")),
 		Area: strings.TrimSpace(r.FormValue("area")), Country: r.FormValue("country"), Lang: r.FormValue("lang"),
 		RadiusM: radius, Limit: atoi("limit"), MaxResults: atoi("max_results"),
-		UseGMaps: on("gmaps"), UseOSM: on("osm"), Social: on("social"), SMTPCheck: on("smtp"), GMapsMaxSec: atoi("gmaps_max_sec"),
+		UseGMaps: on("gmaps"), UseOSM: on("osm"), SMTPCheck: on("smtp"), GMapsMaxSec: atoi("gmaps_max_sec"),
 		Incremental: on("incremental"), CellSizeM: atoi("cell_size"), MaxCells: atoi("max_cells"),
-		Directories: r.Form["dir"], ChamberURL: strings.TrimSpace(r.FormValue("chamber_url")), MaxPages: atoi("max_pages"),
-		JSRender: on("js_render"), RDAP: on("rdap"), CommonCrawl: on("common_crawl"), GuessEmails: on("guess"),
+		MaxPages: atoi("max_pages"),
 	}
 	if p.Category == "" || p.Location == "" {
 		http.Error(w, "category and location required", 400)
@@ -217,8 +216,8 @@ func (s *Server) importCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	mr, _ := strconv.Atoi(r.FormValue("max_results"))
 	p := model.JobParams{Category: strings.TrimSpace(r.FormValue("category")), Location: strings.TrimSpace(r.FormValue("location")),
-		Country: r.FormValue("country"), MaxResults: mr, UseGMaps: r.FormValue("rank") != "", Social: r.FormValue("social") != "",
-		JSRender: true, RDAP: true, CommonCrawl: true, ImportFile: hdr.Filename}
+		Country: r.FormValue("country"), MaxResults: mr, UseGMaps: r.FormValue("rank") != "",
+		ImportFile: hdr.Filename}
 	pipeline.Normalize(&p)
 	p.UseOSM = false
 	id, err := s.Store.CreateJob(p)

@@ -11,18 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/timmy2048/leadfinder/internal/commoncrawl"
 	"github.com/timmy2048/leadfinder/internal/coverage"
 	"github.com/timmy2048/leadfinder/internal/crawl"
 	"github.com/timmy2048/leadfinder/internal/dedupe"
-	"github.com/timmy2048/leadfinder/internal/directory"
 	"github.com/timmy2048/leadfinder/internal/fetch"
 	"github.com/timmy2048/leadfinder/internal/gmaps"
 	"github.com/timmy2048/leadfinder/internal/model"
 	"github.com/timmy2048/leadfinder/internal/osm"
-	"github.com/timmy2048/leadfinder/internal/rdap"
 	"github.com/timmy2048/leadfinder/internal/score"
-	"github.com/timmy2048/leadfinder/internal/social"
 	"github.com/timmy2048/leadfinder/internal/store"
 	"github.com/timmy2048/leadfinder/internal/verify"
 )
@@ -172,20 +168,6 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 		all = append(all, bs...)
 	}
 
-	for _, name := range p.Directories {
-		src, ok := directory.All[name]
-		if !ok {
-			continue
-		}
-		prog(name + ": searching directory")
-		bs, err := src.Search(ctx, r.fetcher(), directory.Query{Category: p.Category, Location: query, City: p.Location, Limit: max(20, p.Limit), ChamberURL: p.ChamberURL})
-		prog(fmt.Sprintf("%s: %d businesses", name, len(bs)))
-		if err != nil {
-			errs = append(errs, name+": "+err.Error())
-		}
-		all = append(all, bs...)
-	}
-
 	if len(all) == 0 && len(errs) > 0 {
 		return fail(fmt.Errorf("%s", strings.Join(errs, "; ")))
 	}
@@ -245,11 +227,7 @@ func (r *Runner) finish(ctx context.Context, jobID int64, p model.JobParams, pla
 	if conc <= 0 {
 		conc = 4
 	}
-	opts := EnrichOpts{Fetch: r.fetcher(), Verify: verify.New(p.SMTPCheck), SMTP: p.SMTPCheck, MaxPages: p.MaxPages,
-		JS: p.JSRender, RDAP: p.RDAP, CommonCrawl: p.CommonCrawl, Guess: p.GuessEmails}
-	if p.Social {
-		opts.Social = social.Default(r.fetcher())
-	}
+	opts := EnrichOpts{Fetch: r.fetcher(), Verify: verify.New(p.SMTPCheck), SMTP: p.SMTPCheck, MaxPages: p.MaxPages}
 	sem := make(chan struct{}, conc)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -451,18 +429,13 @@ func max(a, b int) int {
 
 // EnrichOpts controls free email enrichment.
 type EnrichOpts struct {
-	Fetch       *fetch.Client
-	Social      *social.Registry
-	Verify      *verify.Verifier
-	SMTP        bool
-	MaxPages    int
-	JS, RDAP    bool
-	CommonCrawl bool
-	Guess       bool
+	Fetch    *fetch.Client
+	Verify   *verify.Verifier
+	SMTP     bool
+	MaxPages int
 }
 
-// Enrich crawls the website (deep + sitemap + JS fallback), public socials,
-// RDAP, Common Crawl, optional pattern guess; records email sources; scores.
+// Enrich deep-crawls the website (+ sitemap contact pages); records email sources; scores.
 func Enrich(ctx context.Context, b *model.Business, o EnrichOpts) {
 	if o.Fetch == nil {
 		o.Fetch = fetch.New(fetch.DefaultOptions())
@@ -484,13 +457,10 @@ func Enrich(ctx context.Context, b *model.Business, o EnrichOpts) {
 		}
 	}
 	domain := dedupe.Domain(b.Website)
-	var names []string
-	reached := false
 	if b.Website != "" {
 		cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
-		res := crawl.Site(cctx, b.Website, domain, crawl.Options{MaxPages: o.MaxPages, Sitemap: true, JS: o.JS, Fetch: o.Fetch})
+		res := crawl.Site(cctx, b.Website, domain, crawl.Options{MaxPages: o.MaxPages, Sitemap: true, Fetch: o.Fetch})
 		cancel()
-		reached = res.Reached
 		b.SiteReached, b.HTTPS, b.LoadMS, b.HasTitle, b.HasMetaDesc = res.Reached, res.HTTPS, res.LoadMS, res.HasTitle, res.HasMetaDesc
 		b.HasViewport, b.HasLBSchema, b.HasMapEmbed, b.LinksToMaps = res.HasViewport, res.HasSchema, res.HasMapEmbed, res.LinksToMaps
 		b.NAPIssues = nil
@@ -499,41 +469,12 @@ func Enrich(ctx context.Context, b *model.Business, o EnrichOpts) {
 		}
 		addAll(res.EmailSrc)
 		b.Socials = dedupe.Union(b.Socials, res.Socials)
-		names = res.Names
-	}
-	if o.Social != nil && len(b.Socials) > 0 && !hasReal(b) {
-		addAll(o.Social.Enrich(ctx, b.Socials))
-	}
-	if o.RDAP && domain != "" && !hasReal(b) {
-		m := map[string]string{}
-		for _, e := range rdap.Emails(ctx, o.Fetch, domain) {
-			m[e] = "rdap"
-		}
-		addAll(m)
-	}
-	if o.CommonCrawl && domain != "" && (!reached || !hasReal(b)) {
-		cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		addAll(commoncrawl.Emails(cctx, o.Fetch, domain, 3))
-		cancel()
-	}
-	if o.Guess && !hasReal(b) && domain != "" {
-		m := map[string]string{}
-		for _, e := range crawl.GuessEmails(names, domain) {
-			m[e] = "guessed"
-		}
-		addAll(m)
 	}
 	b.Emails = crawl.Rank(b.Emails, domain)
 	b.EmailStatus = map[string]string{}
 	if o.Verify != nil {
 		for _, e := range b.Emails {
 			b.EmailStatus[e] = o.Verify.Check(e)
-		}
-	}
-	// guessed only counts when SMTP-verified mailbox; otherwise keep but never primary
-	for _, e := range b.Emails {
-		if b.EmailSources[e] == "guessed" && (!o.SMTP || b.EmailStatus[e] != "valid") {
-			b.EmailStatus[e] = "guessed"
 		}
 	}
 	score.Reachability(b, domain)

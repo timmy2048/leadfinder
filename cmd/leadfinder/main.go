@@ -10,10 +10,8 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/timmy2048/leadfinder/internal/directory"
 	"github.com/timmy2048/leadfinder/internal/fetch"
 	"github.com/timmy2048/leadfinder/internal/importer"
 
@@ -110,9 +108,8 @@ func usage() {
   leadfinder run -category restaurant -location "Bath, UK" [-area "city centre"] [-country gb] [-lang en]
                  [-radius 5000]   # omit or 0 = whole city bbox
                  [-incremental=true] [-cell-size 2500] [-max-cells 40]
-                 [-limit 20] [-max-results 5] [-only-reachable=true] [-out-unreachable u.csv] [-osm=true] [-gmaps-on] [-social] [-smtp]
-                 [-dirs yelp,yellowpages,tripadvisor,booking,opentable,chamber] [-chamber-url URL]
-                 [-max-pages 12] [-js=true] [-rdap=true] [-cc=true] [-guess]
+                 [-limit 20] [-max-results 5] [-only-reachable=true] [-out-unreachable u.csv] [-osm=true] [-gmaps-on] [-smtp]
+                 [-max-pages 8]
                  [-c 8] [-per-host-ms 700] [-retries 2] [-proxies proxies.txt] [-robots=true]
                  [-out leads.csv] [-db leadfinder.db]
   leadfinder import -in outscraper.csv -category cafe [-location "Tampa, FL"] [-country us] [-max-results 5] [-gmaps-on] [-out leads.csv]
@@ -173,18 +170,11 @@ func main() {
 		fs.BoolVar(&p.UseOSM, "osm", true, "use OpenStreetMap")
 		fs.BoolVar(&p.UseGMaps, "gmaps-on", false, "use Google Maps (needs gosom service)")
 		fs.IntVar(&p.GMapsMaxSec, "gmaps-max-sec", 600, "max seconds for each gmaps cell job")
-		fs.BoolVar(&p.Social, "social", false, "enrich from public social profile pages (off by default)")
 		fs.BoolVar(&p.SMTPCheck, "smtp", false, "SMTP mailbox check (needs outbound port 25)")
 		inc := fs.Bool("incremental", true, "skip already-scanned coverage cells; expand radius as a ring")
 		fs.IntVar(&p.CellSizeM, "cell-size", 2500, "coverage grid cell size in meters")
 		fs.IntVar(&p.MaxCells, "max-cells", 40, "max cells to scan per source in one job")
-		dirs := fs.String("dirs", "", "comma list of extra directory sources: "+strings.Join(directory.Names, ","))
-		fs.StringVar(&p.ChamberURL, "chamber-url", "", "known Chamber of Commerce directory base URL")
-		fs.IntVar(&p.MaxPages, "max-pages", 12, "max pages crawled per website")
-		fs.BoolVar(&p.JSRender, "js", true, "headless Chrome fallback for JS-only sites")
-		fs.BoolVar(&p.RDAP, "rdap", true, "RDAP/WHOIS registrant emails (non-redacted only)")
-		fs.BoolVar(&p.CommonCrawl, "cc", true, "Common Crawl archived contact pages when site is down/empty")
-		fs.BoolVar(&p.GuessEmails, "guess", false, "guess first@domain from owner names (marked guessed, never primary unless SMTP-verified)")
+		fs.IntVar(&p.MaxPages, "max-pages", 8, "max pages crawled per website")
 		nf := addNetFlags(fs)
 		db := fs.String("db", env("LF_DB", "leadfinder.db"), "sqlite path")
 		gf := addGmapsFlags(fs)
@@ -192,9 +182,6 @@ func main() {
 		_ = fs.Parse(os.Args[2:])
 		if p.Category == "" || p.Location == "" {
 			usage()
-		}
-		if *dirs != "" {
-			p.Directories = strings.Split(*dirs, ",")
 		}
 		pipeline.NormalizeWithIncrementalDefault(&p, *inc)
 		st, err := store.Open(*db)
@@ -229,12 +216,7 @@ func main() {
 		fs.StringVar(&p.Country, "country", "", "ISO country code")
 		fs.IntVar(&p.MaxResults, "max-results", 0, "best N reachable")
 		fs.BoolVar(&p.UseGMaps, "gmaps-on", false, "check Maps rank (needs gosom)")
-		fs.BoolVar(&p.Social, "social", false, "public social pages")
-		fs.IntVar(&p.MaxPages, "max-pages", 12, "max pages per website")
-		fs.BoolVar(&p.JSRender, "js", true, "headless Chrome fallback")
-		fs.BoolVar(&p.RDAP, "rdap", true, "RDAP emails")
-		fs.BoolVar(&p.CommonCrawl, "cc", true, "Common Crawl fallback")
-		fs.BoolVar(&p.GuessEmails, "guess", false, "guess emails from names")
+		fs.IntVar(&p.MaxPages, "max-pages", 8, "max pages per website")
 		nf := addNetFlags(fs)
 		db := fs.String("db", env("LF_DB", "leadfinder.db"), "sqlite path")
 		gf := addGmapsFlags(fs)

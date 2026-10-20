@@ -107,7 +107,7 @@ func EmailSourceZH(s string) string {
 	}
 	k, path, _ := strings.Cut(s, ":")
 	m := map[string]string{"site": "官网", "sitemap": "官网(sitemap)", "js": "官网(JS渲染)", "facebook": "Facebook", "instagram": "Instagram", "tiktok": "TikTok",
-		"rdap": "域名RDAP", "commoncrawl": "CommonCrawl存档", "guessed": "猜测(未验证)", "import": "导入CSV", "gmaps": "谷歌地图", "osm": "OSM"}
+		"import": "导入CSV", "gmaps": "谷歌地图", "osm": "OSM"}
 	if z, ok := m[k]; ok {
 		k = z
 	}

@@ -17,22 +17,9 @@
 <label><input type="checkbox" name="osm" checked> OpenStreetMap</label>
 <label><input type="checkbox" name="gmaps"> Google Maps（需 gmaps 服务）</label>
 <label>GMaps 最长秒数 <input type="number" name="gmaps_max_sec" value="600"></label>
-<label><input type="checkbox" name="social"> 社媒补全（默认关）</label>
 <label><input type="checkbox" name="smtp"> SMTP 验证（需 25 端口）</label><br>
 <b>免费补邮箱：</b>
-<label>每站最多页数 <input type="number" name="max_pages" value="12" min="1"></label>
-<label><input type="checkbox" name="js_render" checked> JS 渲染兜底（需本机 Chrome）</label>
-<label><input type="checkbox" name="rdap" checked> 域名 RDAP</label>
-<label><input type="checkbox" name="common_crawl" checked> Common Crawl 存档</label>
-<label><input type="checkbox" name="guess"> 按人名猜邮箱（标记“猜测”，不作首选）</label><br>
-<b>额外目录源（尽力而为，可能被拦）：</b>
-<label><input type="checkbox" name="dir" value="yelp"> Yelp</label>
-<label><input type="checkbox" name="dir" value="yellowpages"> Yellow Pages</label>
-<label><input type="checkbox" name="dir" value="tripadvisor"> TripAdvisor</label>
-<label><input type="checkbox" name="dir" value="booking"> Booking.com</label>
-<label><input type="checkbox" name="dir" value="opentable"> OpenTable</label>
-<label><input type="checkbox" name="dir" value="chamber"> 商会会员目录</label>
-<label>商会目录网址(可选) <input type="text" name="chamber_url" placeholder="https://business.xxxchamber.com"></label><br>
+<label>每站最多页数 <input type="number" name="max_pages" value="8" min="1"></label>
 <button type="submit">创建任务</button>
 <button type="button" id="btnCov">查看已有覆盖</button>
 </form>
@@ -45,7 +32,6 @@
 <label>国家代码 <input type="text" name="country" size="3"></label>
 <label>总上限 <input type="number" name="max_results" value="0" min="0"></label>
 <label><input type="checkbox" name="rank"> 查地图排名（需 gmaps 服务）</label>
-<label><input type="checkbox" name="social"> 社媒补全</label>
 <button type="submit">导入并补全打分</button>
 </form>
 <p class="note">仅供合规的 B2B 调研使用。遵守各平台服务条款、GDPR/CAN-SPAM，联系时提供退订方式。</p>
