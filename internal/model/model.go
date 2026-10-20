@@ -57,7 +57,7 @@ type Business struct {
 	MapsRankN   int    `json:"maps_rank_n"`   // results inspected
 	InLocalPack bool   `json:"in_local_pack"` // rank 1..3
 	RankKeyword string `json:"rank_keyword,omitempty"`
-	EnrichVer  int               `json:"enrich_ver"` // bump to force re-enrichment of cached leads // only OSM data: Maps-profile checks skipped
+	EnrichVer   int    `json:"enrich_ver"` // bump to force re-enrichment of cached leads // only OSM data: Maps-profile checks skipped
 }
 
 // Point is one explainable improvement opportunity.
@@ -87,7 +87,7 @@ type JobParams struct {
 	Lang        string `json:"lang"`
 	RadiusM     int    `json:"radius_m"`    // 0 = whole place bounding box
 	Limit       int    `json:"limit"`       // per-cell hint
-	MaxResults  int    `json:"max_results"` // global cap on reachable leads (0 = no cap)
+	MaxResults  int    `json:"max_results"` // pick best N reachable leads after full scan (0 = all)
 	UseGMaps    bool   `json:"use_gmaps"`
 	UseOSM      bool   `json:"use_osm"`
 	Social      bool   `json:"social"`

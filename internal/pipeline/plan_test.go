@@ -68,16 +68,21 @@ func TestSelectOutputCapAndOrder(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		in = append(in, model.Business{Name: fmt.Sprint("r", i), Reachable: true, GMBScore: i, EmailStatus: st})
 	}
-	in = append(in, model.Business{Name: "u1", EmailStatus: st}, model.Business{Name: "never-enriched"})
+	for i := 0; i < 7; i++ {
+		in = append(in, model.Business{Name: fmt.Sprint("u", i), EmailStatus: st})
+	}
+	in = append(in, model.Business{Name: "never-enriched"})
+	// personal tier beats higher GMB score
+	in = append(in, model.Business{Name: "gmail", Reachable: true, GMBScore: 1, EmailType: "personal", EmailStatus: st})
 	out := SelectOutput(in, 5)
 	reach, unreach := Partition(out)
-	if len(reach) != 5 || reach[0].Name != "r9" || reach[4].Name != "r5" {
+	if len(reach) != 5 || reach[0].Name != "gmail" || reach[1].Name != "r9" || reach[4].Name != "r6" {
 		t.Fatalf("%+v", reach)
 	}
-	if len(unreach) != 1 || unreach[0].Name != "u1" {
+	if len(unreach) != 7 { // unreachable not capped by N
 		t.Fatalf("%+v", unreach)
 	}
-	if len(SelectOutput(in, 0)) != 11 {
+	if len(SelectOutput(in, 0)) != 18 {
 		t.Fatal("no cap")
 	}
 }

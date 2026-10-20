@@ -107,7 +107,7 @@ func main() {
 		fs.StringVar(&p.Lang, "lang", "en", "language for Google Maps")
 		fs.IntVar(&p.RadiusM, "radius", 0, "radius meters; 0 = whole place bounding box")
 		fs.IntVar(&p.Limit, "limit", 20, "per-cell result hint (not a total)")
-		fs.IntVar(&p.MaxResults, "max-results", 0, "global cap on reachable (with-email) leads; 0 = no cap")
+		fs.IntVar(&p.MaxResults, "max-results", 0, "pick best N reachable leads after scanning/enriching everything (tier, then GMB score); 0 = all")
 		onlyReach := fs.Bool("only-reachable", true, "main CSV contains only leads with email; set false to include unreachable after them")
 		outUnreach := fs.String("out-unreachable", "", "optional CSV path for the '暂不可触达' (no email) list")
 		fs.BoolVar(&p.UseOSM, "osm", true, "use OpenStreetMap")

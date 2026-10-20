@@ -166,7 +166,7 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 	all = dedupe.Merge(all)
 
 	// Enrich leads that are new or were enriched by an older version.
-	// With MaxResults, stop once enough reachable leads are found.
+	// Always enrich ALL candidates; MaxResults only selects the best N afterwards.
 	toEnrich := []*model.Business{}
 	reachable := 0
 	for i := range all {
@@ -199,13 +199,6 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 	var mu sync.Mutex
 	done := 0
 	for _, b := range toEnrich {
-		mu.Lock()
-		enough := p.MaxResults > 0 && reachable >= p.MaxResults
-		mu.Unlock()
-		if enough {
-			prog(fmt.Sprintf("reached max-results %d reachable; skipping remaining enrichment", p.MaxResults))
-			break
-		}
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(b *model.Business) {
@@ -229,11 +222,19 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 	if err := r.Store.UpsertLeads(leadKey, all); err != nil {
 		return fail(err)
 	}
-	out := SelectOutput(all, p.MaxResults)
+	// Rank + score every reachable lead, then pick the top N.
+	out := SelectOutput(all, 0)
 	if p.UseGMaps && r.GMapsURL != "" {
 		AssignRanks(ctx, out, p.Category, p.CellSizeM, place.Lat, place.Lon, GMapsRankSearcher(r.GMapsURL, p.Lang), prog)
-		sort.SliceStable(out, func(i, j int) bool { return score.Less(out[i], out[j]) })
 	}
+	totalReach := 0
+	for _, b := range out {
+		if b.Reachable {
+			totalReach++
+		}
+	}
+	out = SelectOutput(out, p.MaxResults)
+	prog(fmt.Sprintf("selected best %d of %d reachable leads", selectedCount(totalReach, p.MaxResults), totalReach))
 	if err := r.Store.SaveBusinesses(jobID, out); err != nil {
 		return fail(err)
 	}
@@ -243,7 +244,7 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 			nr++
 		}
 	}
-	msg := fmt.Sprintf("done: %d reachable (with email), %d unreachable, %d scanned total (incremental=%v)", nr, len(out)-nr, len(all), p.Incremental)
+	msg := fmt.Sprintf("done: %d reachable selected of %d reachable, %d unreachable, %d scanned total (incremental=%v)", nr, totalReach, len(out)-nr, len(all), p.Incremental)
 	all = out
 	_ = r.Store.UpdateJob(jobID, "done", msg, strings.Join(errs, "; "))
 	return all, nil
@@ -252,9 +253,9 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 // EnrichVersion bumps when enrichment adds new signals (forces re-crawl of cached leads).
 const EnrichVersion = 3
 
-// SelectOutput sorts reachable-first by GMB score and caps reachable leads at
-// maxResults (0 = no cap). Unreachable leads that were enriched are kept after
-// them (also capped at maxResults) for the separate "暂不可触达" view.
+// SelectOutput sorts reachable leads by score.Less (email tier, then GMB score)
+// and keeps the best maxResults (0 = all). Unreachable leads are NOT capped:
+// all enriched unreachable leads follow, for the separate "暂不可触达" view.
 func SelectOutput(all []model.Business, maxResults int) []model.Business {
 	var reach, unreach []model.Business
 	for _, b := range all {
@@ -275,9 +276,6 @@ func SelectOutput(all []model.Business, maxResults int) []model.Business {
 	if maxResults > 0 {
 		if len(reach) > maxResults {
 			reach = reach[:maxResults]
-		}
-		if len(unreach) > maxResults {
-			unreach = unreach[:maxResults]
 		}
 	}
 	return append(reach, unreach...)
@@ -418,4 +416,11 @@ func Enrich(ctx context.Context, b *model.Business, reg *social.Registry, ver *v
 	score.Reachability(b, dedupe.Domain(b.Website))
 	score.Compute(b)
 	b.EnrichVer = EnrichVersion
+}
+
+func selectedCount(total, n int) int {
+	if n > 0 && n < total {
+		return n
+	}
+	return total
 }
