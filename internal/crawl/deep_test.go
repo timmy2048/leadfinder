@@ -63,3 +63,14 @@ func TestObfuscations(t *testing.T) {
 		}
 	}
 }
+
+func TestCFMailtoQueryStripped(t *testing.T) {
+	enc := "2a" // key
+	for _, c := range []byte("joe@brew.co?subject=hi there") {
+		enc += string("0123456789abcdef"[(c^0x2a)>>4]) + string("0123456789abcdef"[(c^0x2a)&15])
+	}
+	got := ExtractEmails(`<a href="/cdn-cgi/l/email-protection#` + enc + `">x</a>`)
+	if len(got) != 1 || got[0] != "joe@brew.co" {
+		t.Fatal(got)
+	}
+}

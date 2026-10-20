@@ -77,6 +77,9 @@ func ExtractEmails(raw string) []string {
 	for _, e := range cands {
 		e = strings.ToLower(strings.Trim(e, ".-_ "))
 		e = strings.TrimPrefix(e, "mailto:")
+		if i := strings.IndexAny(e, "?& "); i >= 0 { // mailto query (?subject=...) from decoded CF links
+			e = e[:i]
+		}
 		if !Valid(e) || seen[e] {
 			continue
 		}
@@ -89,7 +92,7 @@ func ExtractEmails(raw string) []string {
 // Valid filters obvious junk.
 func Valid(e string) bool {
 	at := strings.LastIndex(e, "@")
-	if at < 1 || at == len(e)-1 || !emailRe.MatchString(e) {
+	if at < 1 || at == len(e)-1 || emailRe.FindString(e) != e {
 		return false
 	}
 	tld := e[strings.LastIndex(e, ".")+1:]

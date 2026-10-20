@@ -152,6 +152,9 @@ func main() {
 			}
 		}
 		st.MarkInterruptedImports()
+		if !*resume {
+			st.MarkInterrupted()
+		}
 		log.Printf("leadfinder UI on %s (gmaps service %s)", *addr, gm)
 		log.Fatal(http.ListenAndServe(*addr, srv.Handler()))
 	case "run":

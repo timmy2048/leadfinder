@@ -276,7 +276,7 @@ func (s *Store) UpsertLeads(leadKey string, bs []model.Business) error {
 	if err != nil {
 		return err
 	}
-	merged := dedupe.Merge(append(append([]model.Business{}, existing...), bs...))
+	merged := dedupe.Merge(append(append([]model.Business{}, bs...), existing...)) // newest first so fresh enrichment wins
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
