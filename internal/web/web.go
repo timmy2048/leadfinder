@@ -73,7 +73,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 	p := model.JobParams{
 		Category: strings.TrimSpace(r.FormValue("category")), Location: strings.TrimSpace(r.FormValue("location")),
 		Area: strings.TrimSpace(r.FormValue("area")), Country: r.FormValue("country"), Lang: r.FormValue("lang"),
-		RadiusM: radius, Limit: atoi("limit"),
+		RadiusM: radius, Limit: atoi("limit"), MaxResults: atoi("max_results"),
 		UseGMaps: on("gmaps"), UseOSM: on("osm"), Social: on("social"), SMTPCheck: on("smtp"), GMapsMaxSec: atoi("gmaps_max_sec"),
 		Incremental: on("incremental"), CellSizeM: atoi("cell_size"), MaxCells: atoi("max_cells"),
 	}
@@ -103,13 +103,31 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bs, _ := s.Store.Businesses(j.ID)
-	_ = s.tpl.ExecuteTemplate(w, "job.html", map[string]any{"Job": j, "Rows": bs, "Running": j.Status == "pending" || j.Status == "running"})
+	reach, unreach := pipeline.Partition(bs)
+	view := r.URL.Query().Get("view") // "" = reachable, "unreachable", "all"
+	rows := reach
+	switch view {
+	case "unreachable":
+		rows = unreach
+	case "all":
+		rows = bs
+	}
+	_ = s.tpl.ExecuteTemplate(w, "job.html", map[string]any{"Job": j, "Rows": rows, "View": view, "NReach": len(reach), "NUnreach": len(unreach), "Running": j.Status == "pending" || j.Status == "running"})
 }
 
 func (s *Server) csv(w http.ResponseWriter, r *http.Request) {
 	bs, _ := s.Store.Businesses(s.id(r))
+	reach, unreach := pipeline.Partition(bs)
+	name := "leads"
+	switch r.URL.Query().Get("view") {
+	case "unreachable":
+		bs, name = unreach, "unreachable"
+	case "all":
+	default:
+		bs = reach
+	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="leads-job-%d.csv"`, s.id(r)))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-job-%d.csv"`, name, s.id(r)))
 	_ = store.WriteCSV(w, bs)
 }
 

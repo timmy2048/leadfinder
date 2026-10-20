@@ -20,7 +20,7 @@ func TestStore(t *testing.T) {
 	_ = s.UpdateJob(id, "done", "ok", "")
 	j, _ := s.GetJob(id)
 	bs, _ := s.Businesses(id)
-	if j.Count != 2 || j.Params.Category != "c" || bs[0].Name != "B" {
+	if j.Count != 2 || j.Params.Category != "c" || bs[0].Name != "A" { // insertion order (pipeline pre-sorts)
 		t.Fatalf("%+v %+v", j, bs)
 	}
 	var buf bytes.Buffer

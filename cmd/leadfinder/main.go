@@ -71,7 +71,7 @@ func usage() {
   leadfinder run -category restaurant -location "Bath, UK" [-area "city centre"] [-country gb] [-lang en]
                  [-radius 5000]   # omit or 0 = whole city bbox
                  [-incremental=true] [-cell-size 2500] [-max-cells 40]
-                 [-limit 20] [-osm=true] [-gmaps-on] [-social] [-smtp]
+                 [-limit 20] [-max-results 5] [-only-reachable=true] [-out-unreachable u.csv] [-osm=true] [-gmaps-on] [-social] [-smtp]
                  [-out leads.csv] [-db leadfinder.db]`)
 	os.Exit(2)
 }
@@ -106,7 +106,10 @@ func main() {
 		fs.StringVar(&p.Country, "country", "", "ISO country code (helps geocoding)")
 		fs.StringVar(&p.Lang, "lang", "en", "language for Google Maps")
 		fs.IntVar(&p.RadiusM, "radius", 0, "radius meters; 0 = whole place bounding box")
-		fs.IntVar(&p.Limit, "limit", 20, "max results hint per cell/source")
+		fs.IntVar(&p.Limit, "limit", 20, "per-cell result hint (not a total)")
+		fs.IntVar(&p.MaxResults, "max-results", 0, "global cap on reachable (with-email) leads; 0 = no cap")
+		onlyReach := fs.Bool("only-reachable", true, "main CSV contains only leads with email; set false to include unreachable after them")
+		outUnreach := fs.String("out-unreachable", "", "optional CSV path for the '暂不可触达' (no email) list")
 		fs.BoolVar(&p.UseOSM, "osm", true, "use OpenStreetMap")
 		fs.BoolVar(&p.UseGMaps, "gmaps-on", false, "use Google Maps (needs gosom service)")
 		fs.IntVar(&p.GMapsMaxSec, "gmaps-max-sec", 600, "max seconds for each gmaps cell job")
@@ -152,10 +155,25 @@ func main() {
 			defer f.Close()
 			w = f
 		}
-		if err := store.WriteCSV(w, bs); err != nil {
+		reach, unreach := pipeline.Partition(bs)
+		main := reach
+		if !*onlyReach {
+			main = bs
+		}
+		if err := store.WriteCSV(w, main); err != nil {
 			log.Fatal(err)
 		}
-		log.Printf("job %s: %d businesses", strconv.FormatInt(id, 10), len(bs))
+		if *outUnreach != "" {
+			f, err := os.Create(*outUnreach)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if err := store.WriteCSV(f, unreach); err != nil {
+				log.Fatal(err)
+			}
+			f.Close()
+		}
+		log.Printf("job %s: %d reachable, %d unreachable (暂不可触达)", strconv.FormatInt(id, 10), len(reach), len(unreach))
 	default:
 		usage()
 	}

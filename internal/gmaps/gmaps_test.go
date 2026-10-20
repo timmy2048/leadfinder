@@ -50,3 +50,20 @@ func TestScrapeFlow(t *testing.T) {
 		t.Fatal(err, bs)
 	}
 }
+
+func TestParseCSVProfile(t *testing.T) {
+	in := "title,category,categories,open_hours,images,descriptions,link\n" +
+		"A,Restaurant,\"[\"\"Restaurant\"\",\"\"Cuban restaurant\"\"]\",\"{\"\"Monday\"\":[\"\"9-5\"\"]}\",\"[{\"\"title\"\":\"\"x\"\"},{\"\"title\"\":\"\"y\"\"}]\",Nice place,https://maps\n" +
+		"B,Bar,,{},,,\n"
+	bs, err := ParseCSV(strings.NewReader(in))
+	if err != nil || len(bs) != 2 {
+		t.Fatal(err, bs)
+	}
+	a, b := bs[0], bs[1]
+	if len(a.Categories) != 2 || !a.HasHours || a.PhotoCount != 2 || a.Description != "Nice place" || a.MapsLink != "https://maps" {
+		t.Fatalf("%+v", a)
+	}
+	if b.HasHours || b.PhotoCount != 0 || len(b.Categories) != 1 {
+		t.Fatalf("%+v", b)
+	}
+}

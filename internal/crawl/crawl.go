@@ -19,6 +19,11 @@ type Result struct {
 	LoadMS      int64
 	HasTitle    bool
 	HasMetaDesc bool
+	HasViewport bool
+	HasSchema   bool // LocalBusiness-like JSON-LD / microdata
+	HasMapEmbed bool
+	LinksToMaps bool
+	Text        string // lowercased page text (all crawled pages, capped) for NAP checks
 	Err         string
 }
 
@@ -84,6 +89,14 @@ func Site(ctx context.Context, site, domain string, o Options) Result {
 				}
 			}
 			res.HasMetaDesc = strings.Contains(low, `name="description"`) || strings.Contains(low, `name='description'`) || strings.Contains(low, "name=description")
+		}
+		sig := Signals(body)
+		res.HasViewport = res.HasViewport || sig.Viewport
+		res.HasSchema = res.HasSchema || sig.Schema
+		res.HasMapEmbed = res.HasMapEmbed || sig.MapEmbed
+		res.LinksToMaps = res.LinksToMaps || sig.MapsLink
+		if len(res.Text) < 400000 {
+			res.Text += "\n" + strings.ToLower(body)
 		}
 		emails = append(emails, ExtractEmails(body)...)
 		socials = append(socials, ExtractSocials(body)...)

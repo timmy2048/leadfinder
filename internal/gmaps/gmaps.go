@@ -138,11 +138,51 @@ func ParseCSV(r io.Reader) ([]model.Business, error) {
 		for _, e := range strings.FieldsFunc(get(row, "emails"), func(r rune) bool { return r == ',' || r == ';' || r == ' ' }) {
 			b.Emails = append(b.Emails, strings.ToLower(e))
 		}
+		b.MapsLink = get(row, "link")
+		b.Description = firstNE(get(row, "descriptions"), get(row, "description"))
+		b.Categories = listField(get(row, "categories"))
+		if len(b.Categories) == 0 && b.Category != "" {
+			b.Categories = []string{b.Category}
+		}
+		oh := strings.TrimSpace(get(row, "open_hours"))
+		b.HasHours = oh != "" && oh != "{}" && oh != "null" && oh != "[]"
+		b.PhotoCount = countJSON(get(row, "images"))
+		b.PhotosKnown = b.PhotoCount > 0
+		ow := strings.TrimSpace(get(row, "owner"))
+		b.OwnerKnown = ow != "" && ow != "{}" && ow != "null" && strings.Contains(ow, `"id"`)
 		if b.Name != "" {
 			out = append(out, b)
 		}
 	}
 	return out, nil
+}
+
+// listField parses a JSON array of strings or a comma-separated list.
+func listField(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "null" || s == "[]" {
+		return nil
+	}
+	var arr []string
+	if json.Unmarshal([]byte(s), &arr) == nil {
+		return arr
+	}
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// countJSON counts items in a JSON array (any element type).
+func countJSON(s string) int {
+	var arr []json.RawMessage
+	if json.Unmarshal([]byte(strings.TrimSpace(s)), &arr) == nil {
+		return len(arr)
+	}
+	return 0
 }
 
 func firstNE(a, b string) string {

@@ -12,21 +12,21 @@ import (
 
 // Cell is one grid tile to scan or already scanned.
 type Cell struct {
-	Key      string    `json:"key"`
-	Lat      float64   `json:"lat"`
-	Lon      float64   `json:"lon"`
-	SizeM    int       `json:"size_m"`
-	Status   string    `json:"status"` // done, pending, failed
+	Key       string    `json:"key"`
+	Lat       float64   `json:"lat"`
+	Lon       float64   `json:"lon"`
+	SizeM     int       `json:"size_m"`
+	Status    string    `json:"status"` // done, pending, failed
 	ScannedAt time.Time `json:"scanned_at,omitempty"`
 }
 
 // Summary describes prior coverage for a city+category+source.
 type Summary struct {
-	Key         string  `json:"key"`
-	CellCount   int     `json:"cell_count"`
-	MaxRadiusM  int     `json:"max_radius_m"` // approximate from farthest done cell to origin
-	FullBBox    bool    `json:"full_bbox"`
-	LastScan    time.Time `json:"last_scan,omitempty"`
+	Key        string    `json:"key"`
+	CellCount  int       `json:"cell_count"`
+	MaxRadiusM int       `json:"max_radius_m"` // approximate from farthest done cell to origin
+	FullBBox   bool      `json:"full_bbox"`
+	LastScan   time.Time `json:"last_scan,omitempty"`
 }
 
 // NormalizeKey builds a stable coverage key from location + category + source.
@@ -103,12 +103,11 @@ func CellsForCircle(lat, lon float64, radiusM, sizeM int) []Cell {
 	return out
 }
 
-
 func cellCenter(lat, lon float64, sizeM int) (float64, float64) {
 	dLat, dLon := stepDeg(lat, sizeM)
 	i := math.Floor(lat / dLat)
 	j := math.Floor(lon / dLon)
-	return (i+0.5)*dLat, (j+0.5)*dLon
+	return (i + 0.5) * dLat, (j + 0.5) * dLon
 }
 
 // CellsForBBox tiles a geographic bounding box.

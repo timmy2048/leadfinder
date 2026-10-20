@@ -6,11 +6,37 @@
 - 用 [colly](https://github.com/gocolly/colly) 爬商家官网首页和联系页提取邮箱。支持 `mailto:`、正则匹配、`[at]`/`(dot)` 这类混淆写法、Cloudflare `data-cfemail` 解码，优先排同域名邮箱
 - 可选：从商家的 Instagram/Facebook/TikTok 主页补抓邮箱。只做匿名公开访问，不登录，**默认关闭**
 - 用 [AfterShip/email-verifier](https://github.com/AfterShip/email-verifier) 验证邮箱：语法、MX 记录、一次性邮箱；SMTP 检查可选
-- **SEO 需求评分**（0–100，越高越需要 SEO）：无网站、网站打不开、无 HTTPS、网站慢、缺 title / meta 描述、评论少、评分低
+- **GMB 机会分**（Google Business Profile 优化机会，越高越值得联系）：只对**有邮箱**的商家计算，每家列出可解释的「可提升点」（中文标签 + 英文开发信话术 + 权重），总分 = 权重之和。没有邮箱的商家单独放进「暂不可触达」列表，不参与主排序
 - **增量覆盖格子**：同一「城市 + 行业」共用已扫格子；扩大半径时只扫新圆环，已扫区域不再请求，减轻封 IP 风险；线索库跨任务合并去重
 - 结果存 SQLite（纯 Go，无需 CGO）。提供 Web 界面（创建任务、看进度、看结果表、导出 CSV）和命令行
 
 > ⚠️ 本工具**没有发邮件功能**，也不会加。
+
+## 可触达 + GMB 机会分
+
+主列表 = 至少有一个邮箱的商家（优先与官网同域名的邮箱，如 `info@店名.com`，标「✓同域」）。网页任务页有三个标签：**可触达 / 暂不可触达 / 全部**，CSV 也可分别导出（`/jobs/ID/csv`、`?view=unreachable`、`?view=all`）。排序：可触达在前，按 GMB 分从高到低。
+
+| key | 中文 | 权重 | 需谷歌地图数据 |
+|---|---|---|---|
+| unclaimed | 地图商家资料疑似未认领（无 owner） | 25 | 是 |
+| few_reviews | 评论数少（<50） | 20 | 是 |
+| low_rating | 评分偏低（<4.2） | 15 | 是 |
+| nap_mismatch | 地图与官网 名称/地址/电话 不一致 | 15 | 是 |
+| no_hours | 地图缺营业时间 | 10 | 是 |
+| few_photos | 照片少（<10，仅在 gosom 返回了图片数时判断） | 10 | 是 |
+| generic_category | 仅一个笼统类目（如只有 Restaurant） | 10 | 是 |
+| no_description | 缺商家描述 | 10 | 是 |
+| no_site_on_maps | 地图资料未关联网站 | 10 | 是 |
+| no_https | 官网无 HTTPS | 10 | 否 |
+| slow_site | 官网加载慢（>3s） | 8 | 否 |
+| no_title_meta | 缺 title / meta 描述 | 8 | 否 |
+| no_schema | 缺 LocalBusiness 结构化数据 | 8 | 否 |
+| not_mobile | 非移动端适配（无 viewport） | 8 | 否 |
+| site_no_maps | 官网未链接/嵌入谷歌地图 | 5 | 否 |
+
+只用 OSM 的商家拿不到评论、营业时间、类目、描述等地图资料，只会检查官网项，并标记「需谷歌地图数据」；勾选 Google Maps 重跑即可补全（旧线索会自动重新检查）。CSV 里有 `points_zh`、`points_en`（可直接粘进开发信）、`point_keys`、`gmb_score`、`best_email`、`reachable` 等列。阈值在 `internal/score/score.go` 里可改。
+
+本工具**不发送任何邮件**。
 
 ## 增量扫描与半径说明
 
@@ -39,7 +65,7 @@ go build -o leadfinder ./cmd/leadfinder        # Windows: go build -o leadfinder
 ### 只用 OpenStreetMap（最快、零依赖）
 ```bash
 # 5 km
-./leadfinder run -category cafe -location "上海" -country cn -radius 5000 -limit 20 -out leads.csv
+./leadfinder run -category cafe -location "上海" -country cn -radius 5000 -max-results 20 -out leads.csv -out-unreachable no-email.csv
 # 扩大到 10 km：只扫圆环
 ./leadfinder run -category cafe -location "上海" -country cn -radius 10000 -incremental=true -out leads.csv
 # 全城（边界框铺格）
@@ -80,7 +106,10 @@ docker compose up -d --build
 | `-radius` | 搜索半径（米）。**`0` 或省略 = 全城边界框** |
 | `-incremental` | 增量扫描，默认 `true`：跳过已扫格子，扩大半径只扫圆环 |
 | `-cell-size` / `-max-cells` | 覆盖格子边长（默认 2500 m）和单次每源最多格子数（默认 40） |
-| `-limit` | 每个格子结果数量上限提示 |
+| `-limit` | 每个格子向数据源请求的数量提示（不是总数） |
+| `-max-results` | **全局总上限**：最多输出多少家「有邮箱」的商家（0=不限）。凑够就停止扫描新格子/停止爬官网 |
+| `-only-reachable` | 主 CSV 只放有邮箱的商家（默认 true）；设 false 则把暂不可触达的追加在后面 |
+| `-out-unreachable` | 另存「暂不可触达」CSV 的路径 |
 | `-osm` / `-gmaps-on` | 数据源开关（OSM 默认开） |
 | `-social` | 从社媒公开主页补抓邮箱（默认关） |
 | `-smtp` | SMTP 邮箱存在性检查，**需要 25 端口出站**（大多数家庭宽带和云服务器默认封禁，被封时结果会显示 unknown） |
@@ -97,7 +126,7 @@ internal/dedupe       去重合并
 internal/crawl        colly 爬官网、邮箱提取、SEO 信号
 internal/social       可插拔的社媒补全（Enricher 接口）
 internal/verify       邮箱验证
-internal/score        SEO 需求评分
+internal/score        可触达判定 + GMB 机会分（提升点目录）
 internal/store        SQLite（任务、单次结果、coverage_cells、leads 库）+ CSV 导出
 internal/pipeline     编排（按格扫描、增量、合并线索）
 internal/web          Web 界面 + JSON API（/api/jobs、/api/coverage）

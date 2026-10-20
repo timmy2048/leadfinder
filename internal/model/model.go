@@ -25,9 +25,50 @@ type Business struct {
 	HasTitle     bool              `json:"has_title"`
 	HasMetaDesc  bool              `json:"has_meta_desc"`
 	SiteReached  bool              `json:"site_reached"`
-	EmailStatus  map[string]string `json:"email_status"` // email -> valid/risky/invalid/unknown
-	SEOScore     int               `json:"seo_score"`
-	ScoreReasons []string          `json:"score_reasons"`
+	EmailStatus  map[string]string `json:"email_status"`  // email -> valid/risky/invalid/unknown
+	SEOScore     int               `json:"seo_score"`     // legacy, mirrors GMBScore
+	ScoreReasons []string          `json:"score_reasons"` // legacy, mirrors point labels
+
+	// Google Maps profile signals (gosom); zero values when only OSM.
+	Categories  []string `json:"categories,omitempty"`
+	HasHours    bool     `json:"has_hours"`
+	PhotoCount  int      `json:"photo_count"`
+	PhotosKnown bool     `json:"photos_known"` // gosom often returns images=[] at low depth; only judge when known
+	OwnerKnown  bool     `json:"owner_known"`  // profile shows an owner (claimed)
+	Description string   `json:"description,omitempty"`
+	MapsLink    string   `json:"maps_link,omitempty"`
+	// Extra website checks
+	HasViewport bool     `json:"has_viewport"`
+	HasLBSchema bool     `json:"has_lb_schema"`
+	HasMapEmbed bool     `json:"has_map_embed"`
+	LinksToMaps bool     `json:"links_to_maps"`
+	NAPIssues   []string `json:"nap_issues,omitempty"` // phone/address/name
+	// GMB opportunity
+	Reachable  bool    `json:"reachable"`
+	BestEmail  string  `json:"best_email,omitempty"`
+	SameDomain bool    `json:"same_domain_email"`
+	GMBScore   int     `json:"gmb_score"`
+	Points     []Point `json:"points,omitempty"`
+	NeedsGMaps bool    `json:"needs_gmaps"`
+	EnrichVer  int     `json:"enrich_ver"` // bump to force re-enrichment of cached leads // only OSM data: Maps-profile checks skipped
+}
+
+// Point is one explainable improvement opportunity.
+type Point struct {
+	Key     string `json:"key"`
+	LabelZH string `json:"label_zh"`
+	PitchEN string `json:"pitch_en"`
+	Weight  int    `json:"weight"`
+}
+
+// HasSource reports whether the lead came from src.
+func (b Business) HasSource(src string) bool {
+	for _, s := range b.Sources {
+		if s == src {
+			return true
+		}
+	}
+	return false
 }
 
 // JobParams are user inputs for a job.
@@ -37,8 +78,9 @@ type JobParams struct {
 	Area        string `json:"area"`     // optional district / street (finer place)
 	Country     string `json:"country"`
 	Lang        string `json:"lang"`
-	RadiusM     int    `json:"radius_m"` // 0 = whole place bounding box
-	Limit       int    `json:"limit"`
+	RadiusM     int    `json:"radius_m"`    // 0 = whole place bounding box
+	Limit       int    `json:"limit"`       // per-cell hint
+	MaxResults  int    `json:"max_results"` // global cap on reachable leads (0 = no cap)
 	UseGMaps    bool   `json:"use_gmaps"`
 	UseOSM      bool   `json:"use_osm"`
 	Social      bool   `json:"social"`

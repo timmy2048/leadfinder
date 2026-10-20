@@ -126,7 +126,7 @@ func (s *Store) SaveBusinesses(jobID int64, bs []model.Business) error {
 }
 
 func (s *Store) Businesses(jobID int64) ([]model.Business, error) {
-	rows, err := s.db.Query(`SELECT id,data FROM businesses WHERE job_id=? ORDER BY seo_score DESC, id`, jobID)
+	rows, err := s.db.Query(`SELECT id,data FROM businesses WHERE job_id=? ORDER BY id`, jobID)
 	if err != nil {
 		return nil, err
 	}
@@ -267,14 +267,15 @@ func (s *Store) UpsertLeads(leadKey string, bs []model.Business) error {
 func WriteCSV(w io.Writer, bs []model.Business) error {
 	_, _ = w.Write([]byte("\ufeff"))
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"name", "category", "address", "phone", "website", "emails", "email_status", "socials", "sources", "review_count", "rating", "https", "load_ms", "has_title", "has_meta_desc", "seo_score", "score_reasons", "lat", "lon"})
+	_ = cw.Write([]string{"name", "category", "address", "phone", "website", "emails", "email_status", "socials", "sources", "review_count", "rating", "https", "load_ms", "has_title", "has_meta_desc", "reachable", "best_email", "same_domain_email", "gmb_score", "points_zh", "points_en", "point_keys", "needs_gmaps", "maps_rating_photos_hours", "lat", "lon"})
 	for _, b := range bs {
 		var st []string
 		for _, e := range b.Emails {
 			st = append(st, e+":"+orDash(b.EmailStatus[e]))
 		}
 		_ = cw.Write([]string{b.Name, b.Category, b.Address, b.Phone, b.Website, strings.Join(b.Emails, ";"), strings.Join(st, ";"), strings.Join(b.Socials, ";"), strings.Join(b.Sources, ";"),
-			fmt.Sprint(b.ReviewCount), fmt.Sprint(b.Rating), fmt.Sprint(b.HTTPS), fmt.Sprint(b.LoadMS), fmt.Sprint(b.HasTitle), fmt.Sprint(b.HasMetaDesc), fmt.Sprint(b.SEOScore), strings.Join(b.ScoreReasons, ";"),
+			fmt.Sprint(b.ReviewCount), fmt.Sprint(b.Rating), fmt.Sprint(b.HTTPS), fmt.Sprint(b.LoadMS), fmt.Sprint(b.HasTitle), fmt.Sprint(b.HasMetaDesc), fmt.Sprint(b.Reachable), b.BestEmail, fmt.Sprint(b.SameDomain), fmt.Sprint(b.GMBScore), joinPts(b.Points, "zh"), joinPts(b.Points, "en"), joinPts(b.Points, "key"), needs(b),
+			fmt.Sprintf("photos=%d hours=%v cats=%s", b.PhotoCount, b.HasHours, strings.Join(b.Categories, "|")),
 			fmt.Sprintf("%.6f", b.Lat), fmt.Sprintf("%.6f", b.Lon)})
 	}
 	cw.Flush()
@@ -286,4 +287,30 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+func needs(b model.Business) string {
+	if b.NeedsGMaps {
+		return "需谷歌地图数据"
+	}
+	return ""
+}
+
+func joinPts(ps []model.Point, f string) string {
+	var out []string
+	for _, p := range ps {
+		switch f {
+		case "zh":
+			out = append(out, fmt.Sprintf("%s(+%d)", p.LabelZH, p.Weight))
+		case "en":
+			out = append(out, p.PitchEN)
+		default:
+			out = append(out, p.Key)
+		}
+	}
+	sep := "; "
+	if f == "en" {
+		sep = " | "
+	}
+	return strings.Join(out, sep)
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -164,14 +165,23 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 	}
 	all = dedupe.Merge(all)
 
-	// Re-enrich only those missing EmailStatus map entirely (fresh finds / not yet enriched).
+	// Enrich leads that are new or were enriched by an older version.
+	// With MaxResults, stop once enough reachable leads are found.
 	toEnrich := []*model.Business{}
+	reachable := 0
 	for i := range all {
-		if all[i].EmailStatus == nil {
+		if all[i].EmailStatus == nil || all[i].EnrichVer < EnrichVersion {
 			toEnrich = append(toEnrich, &all[i])
+		} else {
+			score.Compute(&all[i])
+			if all[i].Reachable {
+				reachable++
+			}
 		}
 	}
-	prog(fmt.Sprintf("%d unique businesses; enriching %d new", len(all), len(toEnrich)))
+	// Websites first: they are the only source of emails.
+	sort.SliceStable(toEnrich, func(i, j int) bool { return toEnrich[i].Website != "" && toEnrich[j].Website == "" })
+	prog(fmt.Sprintf("%d unique businesses; %d already reachable; enriching up to %d", len(all), reachable, len(toEnrich)))
 
 	conc := r.Concurrency
 	if conc <= 0 {
@@ -187,6 +197,13 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 	var mu sync.Mutex
 	done := 0
 	for _, b := range toEnrich {
+		mu.Lock()
+		enough := p.MaxResults > 0 && reachable >= p.MaxResults
+		mu.Unlock()
+		if enough {
+			prog(fmt.Sprintf("reached max-results %d reachable; skipping remaining enrichment", p.MaxResults))
+			break
+		}
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(b *model.Business) {
@@ -194,6 +211,9 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 			defer func() { <-sem }()
 			Enrich(ctx, b, reg, ver)
 			mu.Lock()
+			if b.Reachable {
+				reachable++
+			}
 			done++
 			if done%3 == 0 || done == len(toEnrich) {
 				prog(fmt.Sprintf("enriched %d/%d", done, len(toEnrich)))
@@ -203,15 +223,70 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 	}
 	wg.Wait()
 
-	if err := r.Store.SaveBusinesses(jobID, all); err != nil {
-		return fail(err)
-	}
+	// Cache everything (including not-yet-enriched) for future incremental runs.
 	if err := r.Store.UpsertLeads(leadKey, all); err != nil {
 		return fail(err)
 	}
-	msg := fmt.Sprintf("done: %d businesses (incremental=%v)", len(all), p.Incremental)
+	out := SelectOutput(all, p.MaxResults)
+	if err := r.Store.SaveBusinesses(jobID, out); err != nil {
+		return fail(err)
+	}
+	nr := 0
+	for _, b := range out {
+		if b.Reachable {
+			nr++
+		}
+	}
+	msg := fmt.Sprintf("done: %d reachable (with email), %d unreachable, %d scanned total (incremental=%v)", nr, len(out)-nr, len(all), p.Incremental)
+	all = out
 	_ = r.Store.UpdateJob(jobID, "done", msg, strings.Join(errs, "; "))
 	return all, nil
+}
+
+// EnrichVersion bumps when enrichment adds new signals (forces re-crawl of cached leads).
+const EnrichVersion = 3
+
+// SelectOutput sorts reachable-first by GMB score and caps reachable leads at
+// maxResults (0 = no cap). Unreachable leads that were enriched are kept after
+// them (also capped at maxResults) for the separate "暂不可触达" view.
+func SelectOutput(all []model.Business, maxResults int) []model.Business {
+	var reach, unreach []model.Business
+	for _, b := range all {
+		if b.EmailStatus == nil && !b.Reachable {
+			continue // never enriched (skipped by max-results)
+		}
+		if b.Reachable {
+			reach = append(reach, b)
+		} else {
+			unreach = append(unreach, b)
+		}
+	}
+	less := func(s []model.Business) func(i, j int) bool {
+		return func(i, j int) bool { return score.Less(s[i], s[j]) }
+	}
+	sort.SliceStable(reach, less(reach))
+	sort.SliceStable(unreach, less(unreach))
+	if maxResults > 0 {
+		if len(reach) > maxResults {
+			reach = reach[:maxResults]
+		}
+		if len(unreach) > maxResults {
+			unreach = unreach[:maxResults]
+		}
+	}
+	return append(reach, unreach...)
+}
+
+// Partition splits into reachable and unreachable, preserving order.
+func Partition(bs []model.Business) (reach, unreach []model.Business) {
+	for _, b := range bs {
+		if b.Reachable {
+			reach = append(reach, b)
+		} else {
+			unreach = append(unreach, b)
+		}
+	}
+	return
 }
 
 func (r *Runner) scanSource(ctx context.Context, p model.JobParams, place osm.Place, source string, prog func(string)) ([]model.Business, error) {
@@ -237,6 +312,11 @@ func (r *Runner) scanSource(ctx context.Context, p model.JobParams, place osm.Pl
 	for i, cell := range toScan {
 		if err := ctx.Err(); err != nil {
 			return all, err
+		}
+		// Global cap: enough raw candidates (≈4× target, since many lack email); remaining cells stay unscanned for later.
+		if p.MaxResults > 0 && len(all) >= p.MaxResults*4 {
+			prog(fmt.Sprintf("%s: %d candidates ≥ 4×max-results, stop scanning (%d cells left for next run)", source, len(all), len(toScan)-i))
+			break
 		}
 		prog(fmt.Sprintf("%s: cell %d/%d (%.4f,%.4f)", source, i+1, len(toScan), cell.Lat, cell.Lon))
 		var bs []model.Business
@@ -316,6 +396,11 @@ func Enrich(ctx context.Context, b *model.Business, reg *social.Registry, ver *v
 		res := crawl.Site(cctx, b.Website, dedupe.Domain(b.Website), crawl.DefaultOptions())
 		cancel()
 		b.SiteReached, b.HTTPS, b.LoadMS, b.HasTitle, b.HasMetaDesc = res.Reached, res.HTTPS, res.LoadMS, res.HasTitle, res.HasMetaDesc
+		b.HasViewport, b.HasLBSchema, b.HasMapEmbed, b.LinksToMaps = res.HasViewport, res.HasSchema, res.HasMapEmbed, res.LinksToMaps
+		b.NAPIssues = nil
+		if res.Reached && b.HasSource("gmaps") {
+			b.NAPIssues = crawl.NAPIssues(b.Name, b.Address, b.Phone, res.Text)
+		}
 		b.Emails = dedupe.Union(b.Emails, res.Emails)
 		b.Socials = dedupe.Union(b.Socials, res.Socials)
 	}
@@ -332,5 +417,7 @@ func Enrich(ctx context.Context, b *model.Business, reg *social.Registry, ver *v
 			b.EmailStatus[e] = ver.Check(e)
 		}
 	}
+	score.Reachability(b, dedupe.Domain(b.Website))
 	score.Compute(b)
+	b.EnrichVer = EnrichVersion
 }

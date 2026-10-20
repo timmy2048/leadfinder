@@ -9,7 +9,8 @@
 <label>语言 <input type="text" name="lang" size="3" value="en"></label><br>
 <label>半径(米) <input type="number" name="radius" id="radius" placeholder="空白=全城" min="0"></label>
 <span class="hint">留空或填 0 = 按 Nominatim 边界框铺格子扫整座城市；填了则按圆心半径。</span><br>
-<label>数量上限 <input type="number" name="limit" value="20"></label>
+<label>总上限(有邮箱的商家数) <input type="number" name="max_results" value="20" min="0" title="0=不限"></label>
+<label>每格提示数 <input type="number" name="limit" value="20" title="每个格子向数据源请求的数量提示，不是总数"></label>
 <label>格子大小(米) <input type="number" name="cell_size" value="2500"></label>
 <label>每源最多格子 <input type="number" name="max_cells" value="40"></label><br>
 <label><input type="checkbox" name="incremental" id="incremental" checked> 增量扫描（扩大半径时只扫新圆环，跳过已扫格子）</label><br>

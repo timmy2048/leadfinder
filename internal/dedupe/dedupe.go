@@ -124,6 +124,24 @@ func fill(dst, src *model.Business) {
 	if src.ReviewCount > dst.ReviewCount {
 		dst.ReviewCount, dst.Rating = src.ReviewCount, src.Rating
 	}
+	if len(src.Categories) > len(dst.Categories) {
+		dst.Categories = src.Categories
+	}
+	dst.HasHours = dst.HasHours || src.HasHours
+	dst.PhotosKnown = dst.PhotosKnown || src.PhotosKnown
+	dst.OwnerKnown = dst.OwnerKnown || src.OwnerKnown
+	if src.PhotoCount > dst.PhotoCount {
+		dst.PhotoCount = src.PhotoCount
+	}
+	if dst.Description == "" {
+		dst.Description = src.Description
+	}
+	if dst.MapsLink == "" {
+		dst.MapsLink = src.MapsLink
+	}
+	if src.EnrichVer < dst.EnrichVer && !hasSrc(dst.Sources, "gmaps") && hasSrc(src.Sources, "gmaps") {
+		dst.EnrichVer = 0 // new Maps data: re-enrich for NAP check
+	}
 	dst.Emails = Union(dst.Emails, src.Emails)
 	dst.Socials = Union(dst.Socials, src.Socials)
 	dst.Sources = Union(dst.Sources, src.Sources)
@@ -142,4 +160,13 @@ func Union(a, b []string) []string {
 		out = append(out, strings.TrimSpace(s))
 	}
 	return out
+}
+
+func hasSrc(ss []string, x string) bool {
+	for _, s := range ss {
+		if s == x {
+			return true
+		}
+	}
+	return false
 }

@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -61,3 +62,22 @@ func TestPlaceQuery(t *testing.T) {
 	}
 }
 
+func TestSelectOutputCapAndOrder(t *testing.T) {
+	st := map[string]string{}
+	var in []model.Business
+	for i := 0; i < 10; i++ {
+		in = append(in, model.Business{Name: fmt.Sprint("r", i), Reachable: true, GMBScore: i, EmailStatus: st})
+	}
+	in = append(in, model.Business{Name: "u1", EmailStatus: st}, model.Business{Name: "never-enriched"})
+	out := SelectOutput(in, 5)
+	reach, unreach := Partition(out)
+	if len(reach) != 5 || reach[0].Name != "r9" || reach[4].Name != "r5" {
+		t.Fatalf("%+v", reach)
+	}
+	if len(unreach) != 1 || unreach[0].Name != "u1" {
+		t.Fatalf("%+v", unreach)
+	}
+	if len(SelectOutput(in, 0)) != 11 {
+		t.Fatal("no cap")
+	}
+}

@@ -1,14 +1,20 @@
 <!doctype html><html lang="zh"><head><meta charset="utf-8"><title>任务 {{.Job.ID}}</title>
 {{if .Running}}<meta http-equiv="refresh" content="5">{{end}}
-<style>body{font-family:system-ui,sans-serif;margin:2em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 6px;font-size:13px;vertical-align:top}</style></head><body>
+<style>body{font-family:system-ui,sans-serif;margin:2em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 6px;font-size:13px;vertical-align:top}.tabs a{margin-right:1em}.on{font-weight:bold}.pt{display:inline-block;background:#fff3e0;border-radius:4px;padding:1px 5px;margin:1px;font-size:12px}.ng{color:#888;font-size:12px}.score{font-size:16px;font-weight:bold}</style></head><body>
 <p><a href="/">← 返回</a></p>
 <h1>任务 #{{.Job.ID}}：{{.Job.Params.Category}} @ {{.Job.Params.Location}}{{if .Job.Params.Area}} / {{.Job.Params.Area}}{{end}}</h1>
-<p>半径：{{if eq .Job.Params.RadiusM 0}}全城（边界框）{{else}}{{.Job.Params.RadiusM}} m{{end}} · 增量：{{if .Job.Params.Incremental}}开{{else}}关{{end}} · 格子：{{.Job.Params.CellSizeM}} m</p>
+<p>半径：{{if eq .Job.Params.RadiusM 0}}全城（边界框）{{else}}{{.Job.Params.RadiusM}} m{{end}} · 总上限：{{if .Job.Params.MaxResults}}{{.Job.Params.MaxResults}}{{else}}不限{{end}} · 增量：{{if .Job.Params.Incremental}}开{{else}}关{{end}} · 格子：{{.Job.Params.CellSizeM}} m</p>
 <p>状态：<b>{{.Job.Status}}</b> — {{.Job.Progress}} {{if .Job.Error}}<span style="color:#a33">{{.Job.Error}}</span>{{end}}</p>
-<p><a href="/jobs/{{.Job.ID}}/csv">导出 CSV</a> · <a href="/api/jobs/{{.Job.ID}}">JSON</a></p>
-<table><tr><th>SEO分</th><th>名称</th><th>类别</th><th>电话</th><th>网站</th><th>邮箱(验证)</th><th>社媒</th><th>来源</th><th>评论</th><th>原因</th></tr>
-{{range .Rows}}<tr><td>{{.SEOScore}}</td><td>{{.Name}}<br><small>{{.Address}}</small></td><td>{{.Category}}</td><td>{{.Phone}}</td>
+<p class="tabs">
+<a href="/jobs/{{.Job.ID}}" class="{{if eq .View ""}}on{{end}}">可触达（有邮箱）{{.NReach}}</a>
+<a href="/jobs/{{.Job.ID}}?view=unreachable" class="{{if eq .View "unreachable"}}on{{end}}">暂不可触达 {{.NUnreach}}</a>
+<a href="/jobs/{{.Job.ID}}?view=all" class="{{if eq .View "all"}}on{{end}}">全部</a>
+ · 导出 CSV：<a href="/jobs/{{.Job.ID}}/csv">可触达</a> / <a href="/jobs/{{.Job.ID}}/csv?view=unreachable">暂不可触达</a> / <a href="/jobs/{{.Job.ID}}/csv?view=all">全部</a> · <a href="/api/jobs/{{.Job.ID}}">JSON</a></p>
+<p class="ng">GMB 机会分 = 下列提升点权重之和，越高越值得联系。只对有邮箱的商家计算。标「需谷歌地图数据」的只来自 OSM，评论/照片/营业时间/类目/描述/NAP 等地图资料项未检查，勾选 Google Maps 重跑可补全。</p>
+<table><tr><th>GMB分</th><th>名称</th><th>首选邮箱</th><th>可提升点（可直接写进开发信）</th><th>网站</th><th>评论/评分</th><th>电话</th><th>来源</th></tr>
+{{range .Rows}}<tr><td class="score">{{if .Reachable}}{{.GMBScore}}{{else}}-{{end}}</td><td>{{.Name}}<br><small>{{.Category}} · {{.Address}}</small></td>
+<td>{{if .BestEmail}}{{.BestEmail}}{{if .SameDomain}} <small>✓同域</small>{{end}}{{end}}{{$st := .EmailStatus}}{{range .Emails}}<br><small>{{.}} ({{index $st .}})</small>{{end}}</td>
+<td>{{range .Points}}<span class="pt" title="{{.PitchEN}}">{{.LabelZH}} +{{.Weight}}</span>{{end}}{{if and .Reachable .NeedsGMaps}}<br><span class="ng">需谷歌地图数据</span>{{end}}{{if not .Reachable}}<span class="ng">无邮箱，未评分</span>{{end}}</td>
 <td>{{if .Website}}<a href="{{.Website}}" target="_blank" rel="noopener">{{.Website}}</a><br><small>{{if .HTTPS}}https{{else}}http{{end}} {{.LoadMS}}ms</small>{{end}}</td>
-<td>{{$st := .EmailStatus}}{{range .Emails}}{{.}} <small>({{index $st .}})</small><br>{{end}}</td>
-<td>{{range .Socials}}<a href="{{.}}" target="_blank" rel="noopener">{{.}}</a><br>{{end}}</td><td>{{join .Sources ","}}</td><td>{{.ReviewCount}} / {{.Rating}}</td><td>{{join .ScoreReasons "、"}}</td></tr>{{end}}
+<td>{{if .ReviewCount}}{{.ReviewCount}} / {{.Rating}}{{end}}</td><td>{{.Phone}}</td><td>{{join .Sources ","}}</td></tr>{{end}}
 </table></body></html>
