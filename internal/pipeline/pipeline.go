@@ -313,11 +313,6 @@ func (r *Runner) scanSource(ctx context.Context, p model.JobParams, place osm.Pl
 		if err := ctx.Err(); err != nil {
 			return all, err
 		}
-		// Global cap: enough raw candidates (≈4× target, since many lack email); remaining cells stay unscanned for later.
-		if p.MaxResults > 0 && len(all) >= p.MaxResults*4 {
-			prog(fmt.Sprintf("%s: %d candidates ≥ 4×max-results, stop scanning (%d cells left for next run)", source, len(all), len(toScan)-i))
-			break
-		}
 		prog(fmt.Sprintf("%s: cell %d/%d (%.4f,%.4f)", source, i+1, len(toScan), cell.Lat, cell.Lon))
 		var bs []model.Business
 		var err error
