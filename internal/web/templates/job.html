@@ -1,0 +1,13 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>任务 {{.Job.ID}}</title>
+{{if .Running}}<meta http-equiv="refresh" content="5">{{end}}
+<style>body{font-family:system-ui,sans-serif;margin:2em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 6px;font-size:13px;vertical-align:top}</style></head><body>
+<p><a href="/">← 返回</a></p>
+<h1>任务 #{{.Job.ID}}：{{.Job.Params.Category}} @ {{.Job.Params.Location}}</h1>
+<p>状态：<b>{{.Job.Status}}</b> — {{.Job.Progress}} {{if .Job.Error}}<span style="color:#a33">{{.Job.Error}}</span>{{end}}</p>
+<p><a href="/jobs/{{.Job.ID}}/csv">导出 CSV</a> · <a href="/api/jobs/{{.Job.ID}}">JSON</a></p>
+<table><tr><th>SEO分</th><th>名称</th><th>类别</th><th>电话</th><th>网站</th><th>邮箱(验证)</th><th>社媒</th><th>来源</th><th>评论</th><th>原因</th></tr>
+{{range .Rows}}<tr><td>{{.SEOScore}}</td><td>{{.Name}}<br><small>{{.Address}}</small></td><td>{{.Category}}</td><td>{{.Phone}}</td>
+<td>{{if .Website}}<a href="{{.Website}}" target="_blank" rel="noopener">{{.Website}}</a><br><small>{{if .HTTPS}}https{{else}}http{{end}} {{.LoadMS}}ms</small>{{end}}</td>
+<td>{{$st := .EmailStatus}}{{range .Emails}}{{.}} <small>({{index $st .}})</small><br>{{end}}</td>
+<td>{{range .Socials}}<a href="{{.}}" target="_blank" rel="noopener">{{.}}</a><br>{{end}}</td><td>{{join .Sources ","}}</td><td>{{.ReviewCount}} / {{.Rating}}</td><td>{{join .ScoreReasons "、"}}</td></tr>{{end}}
+</table></body></html>

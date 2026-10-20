@@ -1,0 +1,22 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>LeadFinder</title>
+<style>body{font-family:system-ui,sans-serif;max-width:1100px;margin:2em auto;padding:0 1em}label{display:inline-block;margin:.3em 1em .3em 0}input[type=text],input[type=number]{padding:4px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 6px;font-size:14px}.note{color:#a33;font-size:13px}</style></head><body>
+<h1>LeadFinder 商家线索</h1>
+<form method="post" action="/jobs">
+<label>行业/类别 <input type="text" name="category" placeholder="restaurant / dentist / amenity=cafe" required></label>
+<label>位置 <input type="text" name="location" placeholder="Bath, UK" required></label>
+<label>国家代码 <input type="text" name="country" size="3" placeholder="gb"></label>
+<label>语言 <input type="text" name="lang" size="3" value="en"></label>
+<label>半径(米) <input type="number" name="radius" value="5000"></label>
+<label>数量上限 <input type="number" name="limit" value="20"></label><br>
+<label><input type="checkbox" name="osm" checked> OpenStreetMap</label>
+<label><input type="checkbox" name="gmaps"> Google Maps（需 gmaps 服务）</label>
+<label>GMaps 最长秒数 <input type="number" name="gmaps_max_sec" value="600"></label>
+<label><input type="checkbox" name="social"> 社媒补全（默认关）</label>
+<label><input type="checkbox" name="smtp"> SMTP 验证（需 25 端口）</label><br>
+<button type="submit">创建任务</button>
+</form>
+<p class="note">仅供合规的 B2B 调研使用。遵守各平台服务条款、GDPR/CAN-SPAM，联系时提供退订方式。</p>
+<h2>任务</h2>
+<table><tr><th>ID</th><th>类别</th><th>位置</th><th>状态</th><th>进度</th><th>数量</th><th>创建</th></tr>
+{{range .Jobs}}<tr><td><a href="/jobs/{{.ID}}">{{.ID}}</a></td><td>{{.Params.Category}}</td><td>{{.Params.Location}}</td><td>{{.Status}}</td><td>{{.Progress}} {{.Error}}</td><td>{{.Count}}</td><td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td></tr>{{end}}
+</table></body></html>

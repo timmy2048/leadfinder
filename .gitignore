@@ -1,0 +1,7 @@
+data/
+gmapsdata/
+*.db
+*.db-*
+*.csv
+/leadfinder
+bin/

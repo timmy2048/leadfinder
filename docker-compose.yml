@@ -1,0 +1,22 @@
+services:
+  leadfinder:
+    build: .
+    ports:
+      - "8090:8090"
+    environment:
+      LF_GMAPS_URL: http://gmaps:8080
+    volumes:
+      - ./data:/data
+    depends_on:
+      - gmaps
+    restart: unless-stopped
+
+  # gosom/google-maps-scraper in web/API mode (unmodified upstream image)
+  gmaps:
+    image: gosom/google-maps-scraper:latest
+    command: ["-data-folder", "/gmapsdata"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./gmapsdata:/gmapsdata
+    restart: unless-stopped
