@@ -230,6 +230,10 @@ func (r *Runner) Run(ctx context.Context, jobID int64, p model.JobParams) ([]mod
 		return fail(err)
 	}
 	out := SelectOutput(all, p.MaxResults)
+	if p.UseGMaps && r.GMapsURL != "" {
+		AssignRanks(ctx, out, p.Category, p.CellSizeM, place.Lat, place.Lon, GMapsRankSearcher(r.GMapsURL, p.Lang), prog)
+		sort.SliceStable(out, func(i, j int) bool { return score.Less(out[i], out[j]) })
+	}
 	if err := r.Store.SaveBusinesses(jobID, out); err != nil {
 		return fail(err)
 	}

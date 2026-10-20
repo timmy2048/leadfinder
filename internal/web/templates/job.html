@@ -10,11 +10,14 @@
 <a href="/jobs/{{.Job.ID}}?view=unreachable" class="{{if eq .View "unreachable"}}on{{end}}">暂不可触达 {{.NUnreach}}</a>
 <a href="/jobs/{{.Job.ID}}?view=all" class="{{if eq .View "all"}}on{{end}}">全部</a>
  · 导出 CSV：<a href="/jobs/{{.Job.ID}}/csv">可触达</a> / <a href="/jobs/{{.Job.ID}}/csv?view=unreachable">暂不可触达</a> / <a href="/jobs/{{.Job.ID}}/csv?view=all">全部</a> · <a href="/api/jobs/{{.Job.ID}}">JSON</a></p>
-<p class="ng">GMB 机会分 = 下列提升点权重之和，越高越值得联系。只对有邮箱的商家计算。标「需谷歌地图数据」的只来自 OSM，评论/照片/营业时间/类目/描述/NAP 等地图资料项未检查，勾选 Google Maps 重跑可补全。</p>
-<table><tr><th>GMB分</th><th>名称</th><th>首选邮箱</th><th>可提升点（可直接写进开发信）</th><th>网站</th><th>评论/评分</th><th>电话</th><th>来源</th></tr>
-{{range .Rows}}<tr><td class="score">{{if .Reachable}}{{.GMBScore}}{{else}}-{{end}}</td><td>{{.Name}}<br><small>{{.Category}} · {{.Address}}</small></td>
-<td>{{if .BestEmail}}{{.BestEmail}}{{if .EmailType}} <small>[{{.EmailType}}]</small>{{end}}{{if .SameDomain}} <small>✓同域</small>{{end}}{{end}}{{$st := .EmailStatus}}{{$ty := .EmailTypes}}{{range .Emails}}<br><small>{{.}} ({{index $st .}}{{if $ty}}, {{index $ty .}}{{end}})</small>{{end}}</td>
-<td>{{range .Points}}<span class="pt" title="{{.PitchEN}}">{{.LabelZH}} +{{.Weight}}</span>{{end}}{{if and .Reachable .NeedsGMaps}}<br><span class="ng">需谷歌地图数据</span>{{end}}{{if not .Reachable}}<span class="ng">无邮箱，未评分</span>{{end}}</td>
-<td>{{if .Website}}<a href="{{.Website}}" target="_blank" rel="noopener">{{.Website}}</a><br><small>{{if .HTTPS}}https{{else}}http{{end}} {{.LoadMS}}ms</small>{{end}}</td>
-<td>{{if .ReviewCount}}{{.ReviewCount}} / {{.Rating}}{{end}}</td><td>{{.Phone}}</td><td>{{join .Sources ","}}</td></tr>{{end}}
+<p class="ng">GMB 机会分 = 下列提升点权重之和，越高越值得联系。只对有邮箱的商家计算。地图排名 = 用任务行业关键词在商家附近搜谷歌地图的名次（前 20 内），「前三」即进入 Local Pack，>20 表示前 20 没找到。</p>
+<table><tr><th>名称</th><th>首选邮箱</th><th>其他邮箱</th><th>电话</th><th>网站</th><th>地址</th><th>评分</th><th>评论数</th><th>地图排名</th><th>GMB分</th><th>可提升点（中文）</th><th>Pitch (EN)</th></tr>
+{{range .Rows}}<tr><td>{{.Name}}</td>
+<td>{{.BestEmail}}{{if .EmailType}} <small>[{{typezh .EmailType}}]</small>{{end}}</td>
+<td><small>{{others .}}</small></td><td>{{.Phone}}</td>
+<td>{{if .Website}}<a href="{{.Website}}" target="_blank" rel="noopener">{{.Website}}</a>{{end}}</td>
+<td><small>{{.Address}}</small></td><td>{{if .Rating}}{{.Rating}}{{end}}</td><td>{{if .ReviewCount}}{{.ReviewCount}}{{end}}</td>
+<td>{{rank .}}</td><td class="score">{{if .Reachable}}{{.GMBScore}}{{else}}-{{end}}</td>
+<td>{{range .Points}}<span class="pt">{{.LabelZH}} +{{.Weight}}</span>{{end}}{{if not .Reachable}}<span class="ng">无邮箱，未评分</span>{{end}}</td>
+<td><small>{{range .Points}}• {{.PitchEN}}<br>{{end}}</small></td></tr>{{end}}
 </table></body></html>

@@ -36,7 +36,7 @@ type job struct {
 }
 
 func New(st *store.Store, r *pipeline.Runner) *Server {
-	t := template.Must(template.New("").Funcs(template.FuncMap{"join": strings.Join}).ParseFS(tplFS, "templates/*.html"))
+	t := template.Must(template.New("").Funcs(template.FuncMap{"join": strings.Join, "rank": store.RankLabel, "typezh": store.EmailTypeZH, "others": store.OtherEmails}).ParseFS(tplFS, "templates/*.html"))
 	s := &Server{Store: st, Runner: r, tpl: t, queue: make(chan job, 100)}
 	go func() { // one job at a time to stay polite to public services
 		for j := range s.queue {

@@ -263,23 +263,69 @@ func (s *Store) UpsertLeads(leadKey string, bs []model.Business) error {
 	return tx.Commit()
 }
 
-// WriteCSV exports businesses (UTF-8 BOM for Excel).
+// WriteCSV exports the outreach-relevant columns (UTF-8 BOM for Excel).
+// Internal fields (sources, coords, keys, verification, socials) stay in the DB/JSON.
 func WriteCSV(w io.Writer, bs []model.Business) error {
 	_, _ = w.Write([]byte("\ufeff"))
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"name", "category", "address", "phone", "website", "emails", "email_status", "socials", "sources", "review_count", "rating", "https", "load_ms", "has_title", "has_meta_desc", "reachable", "best_email", "email_type", "email_types", "same_domain_email", "gmb_score", "points_zh", "points_en", "point_keys", "needs_gmaps", "maps_rating_photos_hours", "lat", "lon"})
+	_ = cw.Write([]string{"name", "primary_email", "email_type", "other_emails", "phone", "website", "address", "rating", "review_count", "maps_rank", "gmb_score", "points_zh", "points_en"})
 	for _, b := range bs {
-		var st []string
-		for _, e := range b.Emails {
-			st = append(st, e+":"+orDash(b.EmailStatus[e]))
-		}
-		_ = cw.Write([]string{b.Name, b.Category, b.Address, b.Phone, b.Website, strings.Join(b.Emails, ";"), strings.Join(st, ";"), strings.Join(b.Socials, ";"), strings.Join(b.Sources, ";"),
-			fmt.Sprint(b.ReviewCount), fmt.Sprint(b.Rating), fmt.Sprint(b.HTTPS), fmt.Sprint(b.LoadMS), fmt.Sprint(b.HasTitle), fmt.Sprint(b.HasMetaDesc), fmt.Sprint(b.Reachable), b.BestEmail, b.EmailType, joinTypes(b), fmt.Sprint(b.SameDomain), fmt.Sprint(b.GMBScore), joinPts(b.Points, "zh"), joinPts(b.Points, "en"), joinPts(b.Points, "key"), needs(b),
-			fmt.Sprintf("photos=%d hours=%v cats=%s", b.PhotoCount, b.HasHours, strings.Join(b.Categories, "|")),
-			fmt.Sprintf("%.6f", b.Lat), fmt.Sprintf("%.6f", b.Lon)})
+		_ = cw.Write([]string{b.Name, b.BestEmail, EmailTypeZH(b.EmailType), OtherEmails(b), b.Phone, b.Website, b.Address,
+			ratingStr(b.Rating), fmt.Sprint(b.ReviewCount), RankLabel(b), fmt.Sprint(b.GMBScore), joinPts(b.Points, "zh"), joinPts(b.Points, "en")})
 	}
 	cw.Flush()
 	return cw.Error()
+}
+
+func ratingStr(r float64) string {
+	if r == 0 {
+		return ""
+	}
+	return fmt.Sprint(r)
+}
+
+// RankLabel renders the Maps rank: "3 (前三)", ">20", or "" when unchecked.
+func RankLabel(b model.Business) string {
+	switch {
+	case b.MapsRank > 0 && b.InLocalPack:
+		return fmt.Sprintf("%d (前三)", b.MapsRank)
+	case b.MapsRank > 0:
+		return fmt.Sprint(b.MapsRank)
+	case b.MapsRank < 0:
+		return fmt.Sprintf(">%d", max1(b.MapsRankN))
+	}
+	return ""
+}
+
+func max1(n int) int {
+	if n <= 0 {
+		return 20
+	}
+	return n
+}
+
+// EmailTypeZH translates the email tier.
+func EmailTypeZH(t string) string {
+	switch t {
+	case "personal":
+		return "个人"
+	case "named":
+		return "具名"
+	case "generic":
+		return "通用"
+	}
+	return t
+}
+
+// OtherEmails lists non-primary emails with their type.
+func OtherEmails(b model.Business) string {
+	var out []string
+	for _, e := range b.Emails {
+		if e != b.BestEmail {
+			out = append(out, e+"("+EmailTypeZH(b.EmailTypes[e])+")")
+		}
+	}
+	return strings.Join(out, "; ")
 }
 
 func orDash(s string) string {

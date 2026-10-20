@@ -3,6 +3,7 @@
 package score
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/timmy2048/leadfinder/internal/emailtype"
@@ -40,6 +41,7 @@ var Catalog = map[string]Def{
 	"no_description":   d("no_description", "缺商家描述", "Your profile has no business description; a keyword-rich one helps local ranking.", 10, true),
 	"no_site_on_maps":  d("no_site_on_maps", "地图资料未关联网站", "Your Google profile doesn't link to your website, losing traffic and trust signals.", 10, true),
 	"nap_mismatch":     d("nap_mismatch", "地图与官网NAP不一致", "Name/address/phone on your website doesn't match Google Maps; consistent NAP is a core local-ranking factor.", 15, true),
+	"not_top3":         d("not_top3", "未进入地图前三", "You're not in the top 3 Google Maps results for \"%s\" near you, where most local clicks go.", 15, true),
 	"site_no_maps":     d("site_no_maps", "官网未链接/嵌入谷歌地图", "Your website doesn't link to or embed your Google Maps listing.", 5, false),
 	"no_https":         d("no_https", "官网无HTTPS", "Your website isn't on HTTPS, so browsers mark it 'Not secure'.", 10, false),
 	"slow_site":        d("slow_site", "官网加载慢", "Your website loads slowly, which hurts mobile visitors and rankings.", 8, false),
@@ -125,6 +127,16 @@ func Compute(b *model.Business) {
 		}
 		if len(b.NAPIssues) > 0 {
 			add("nap_mismatch")
+		}
+		if b.MapsRank == -1 || b.MapsRank > 3 {
+			p := Catalog["not_top3"].Point
+			kw := b.RankKeyword
+			if kw == "" {
+				kw = b.Category
+			}
+			p.PitchEN = fmt.Sprintf(p.PitchEN, kw)
+			b.Points = append(b.Points, p)
+			b.GMBScore += p.Weight
 		}
 	}
 	if b.Website != "" && b.SiteReached {

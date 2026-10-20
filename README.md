@@ -24,13 +24,14 @@
 2. `named`（具名）：其他非通用邮箱，如 `columbiacafe@crg1905.com`
 3. `generic`（通用/角色邮箱）：`info@`、`contact@`、`hello@`、`reservations@`、`sales@`、`support@`、`admin@`、`office@`、`events@`、`booking@`、`email@` 等，以及 `info2@`、`info.miami@` 这类变体。照样收录，但永远不排第一
 
-同一档内同域名邮箱优先。网页里首选邮箱后显示 `[personal]` 等标签，每个邮箱后也标出类型；CSV 新增 `email_type`（首选邮箱的类型）和 `email_types`（`邮箱:类型;…`）两列。规则在 `internal/emailtype` 里可改；旧任务打开或导出时会自动按新规则重排。
+同一档内同域名邮箱优先。网页里首选邮箱后显示 `[personal]` 等标签，每个邮箱后也标出类型；CSV 里 `email_type` 是首选邮箱类型（个人/具名/通用），`other_emails` 列出其余邮箱及类型。规则在 `internal/emailtype` 里可改；旧任务打开或导出时会自动按新规则重排。
 
 | key | 中文 | 权重 | 需谷歌地图数据 |
 |---|---|---|---|
 | unclaimed | 地图商家资料疑似未认领（无 owner） | 25 | 是 |
 | few_reviews | 评论数少（<50） | 20 | 是 |
 | low_rating | 评分偏低（<4.2） | 15 | 是 |
+| not_top3 | 未进入地图前三 | 15 | 是 |
 | nap_mismatch | 地图与官网 名称/地址/电话 不一致 | 15 | 是 |
 | no_hours | 地图缺营业时间 | 10 | 是 |
 | few_photos | 照片少（<10，仅在 gosom 返回了图片数时判断） | 10 | 是 |
@@ -44,7 +45,17 @@
 | not_mobile | 非移动端适配（无 viewport） | 8 | 否 |
 | site_no_maps | 官网未链接/嵌入谷歌地图 | 5 | 否 |
 
-只用 OSM 的商家拿不到评论、营业时间、类目、描述等地图资料，只会检查官网项，并标记「需谷歌地图数据」；勾选 Google Maps 重跑即可补全（旧线索会自动重新检查）。CSV 里有 `points_zh`、`points_en`（可直接粘进开发信）、`point_keys`、`gmb_score`、`best_email`、`reachable` 等列。阈值在 `internal/score/score.go` 里可改。
+只用 OSM 的商家拿不到评论、营业时间、类目、描述等地图资料，只会检查官网项，并标记「需谷歌地图数据」；勾选 Google Maps 重跑即可补全（旧线索会自动重新检查）。
+
+### 谷歌地图排名
+
+开启 Google Maps 时，任务结束前会对**有邮箱的商家**再查一次排名：用任务的行业关键词（如 `cafe`）在商家所在位置搜谷歌地图（gosom 快速模式，取前 20 条，结果按地图顺序），按地图链接 ID / 电话 / 官网域名 / 名称匹配出名次。同一格子（`-cell-size`）里的商家共用一次搜索，省请求。名次 1–3 记为「前三（Local Pack）」；>3 或前 20 内没找到（显示 `>20`）会加提升点「未进入地图前三」(+15)。
+
+### 导出字段（网页表格和 CSV 一致）
+
+`name` 名称、`primary_email` 首选邮箱、`email_type` 类型、`other_emails` 其他邮箱、`phone`、`website`、`address`、`rating` 评分、`review_count` 评论数、`maps_rank` 地图排名、`gmb_score`、`points_zh` 中文提升点、`points_en` 英文开发信话术。
+
+来源、坐标、内部 key、邮箱验证状态、社媒链接等不再显示和导出，但仍存在数据库里，可通过 `/api/jobs/ID` 的 JSON 查看。阈值在 `internal/score/score.go` 里可改。
 
 本工具**不发送任何邮件**。
 

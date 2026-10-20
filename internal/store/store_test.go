@@ -25,7 +25,7 @@ func TestStore(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	_ = WriteCSV(&buf, bs)
-	if !strings.Contains(buf.String(), "a@a.com:valid") {
+	if strings.Contains(buf.String(), "valid") || strings.Contains(buf.String(), "sources") || !strings.Contains(buf.String(), "maps_rank") || !strings.Contains(buf.String(), "a@a.com") {
 		t.Fatal(buf.String())
 	}
 }

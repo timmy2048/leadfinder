@@ -52,6 +52,11 @@ type Business struct {
 	GMBScore   int               `json:"gmb_score"`
 	Points     []Point           `json:"points,omitempty"`
 	NeedsGMaps bool              `json:"needs_gmaps"`
+	// Google Maps local rank for the job keyword (reachable leads only).
+	MapsRank    int    `json:"maps_rank"`     // 1..N; -1 = not in top RankDepth; 0 = not checked
+	MapsRankN   int    `json:"maps_rank_n"`   // results inspected
+	InLocalPack bool   `json:"in_local_pack"` // rank 1..3
+	RankKeyword string `json:"rank_keyword,omitempty"`
 	EnrichVer  int               `json:"enrich_ver"` // bump to force re-enrichment of cached leads // only OSM data: Maps-profile checks skipped
 }
 
