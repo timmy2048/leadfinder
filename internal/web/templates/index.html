@@ -1,22 +1,46 @@
 <!doctype html><html lang="zh"><head><meta charset="utf-8"><title>LeadFinder</title>
-<style>body{font-family:system-ui,sans-serif;max-width:1100px;margin:2em auto;padding:0 1em}label{display:inline-block;margin:.3em 1em .3em 0}input[type=text],input[type=number]{padding:4px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 6px;font-size:14px}.note{color:#a33;font-size:13px}</style></head><body>
+<style>body{font-family:system-ui,sans-serif;max-width:1100px;margin:2em auto;padding:0 1em}label{display:inline-block;margin:.3em 1em .3em 0}input[type=text],input[type=number]{padding:4px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 6px;font-size:14px}.note{color:#a33;font-size:13px}.hint{color:#555;font-size:13px}#cov{background:#f6f8fa;padding:.6em 1em;margin:1em 0;border-radius:6px;font-size:13px}</style></head><body>
 <h1>LeadFinder 商家线索</h1>
-<form method="post" action="/jobs">
-<label>行业/类别 <input type="text" name="category" placeholder="restaurant / dentist / amenity=cafe" required></label>
-<label>位置 <input type="text" name="location" placeholder="Bath, UK" required></label>
-<label>国家代码 <input type="text" name="country" size="3" placeholder="gb"></label>
-<label>语言 <input type="text" name="lang" size="3" value="en"></label>
-<label>半径(米) <input type="number" name="radius" value="5000"></label>
-<label>数量上限 <input type="number" name="limit" value="20"></label><br>
+<form method="post" action="/jobs" id="jobform">
+<label>行业/类别 <input type="text" name="category" id="category" placeholder="restaurant / cafe / dentist" required></label>
+<label>城市/地区 <input type="text" name="location" id="location" placeholder="上海 / Bath, UK" required></label>
+<label>街道/行政区（可选） <input type="text" name="area" placeholder="静安 / Pudong"></label>
+<label>国家代码 <input type="text" name="country" id="country" size="3" placeholder="cn"></label>
+<label>语言 <input type="text" name="lang" size="3" value="en"></label><br>
+<label>半径(米) <input type="number" name="radius" id="radius" placeholder="空白=全城" min="0"></label>
+<span class="hint">留空或填 0 = 按 Nominatim 边界框铺格子扫整座城市；填了则按圆心半径。</span><br>
+<label>数量上限 <input type="number" name="limit" value="20"></label>
+<label>格子大小(米) <input type="number" name="cell_size" value="2500"></label>
+<label>每源最多格子 <input type="number" name="max_cells" value="40"></label><br>
+<label><input type="checkbox" name="incremental" id="incremental" checked> 增量扫描（扩大半径时只扫新圆环，跳过已扫格子）</label><br>
 <label><input type="checkbox" name="osm" checked> OpenStreetMap</label>
 <label><input type="checkbox" name="gmaps"> Google Maps（需 gmaps 服务）</label>
 <label>GMaps 最长秒数 <input type="number" name="gmaps_max_sec" value="600"></label>
 <label><input type="checkbox" name="social"> 社媒补全（默认关）</label>
 <label><input type="checkbox" name="smtp"> SMTP 验证（需 25 端口）</label><br>
 <button type="submit">创建任务</button>
+<button type="button" id="btnCov">查看已有覆盖</button>
 </form>
+<div id="cov" style="display:none"></div>
 <p class="note">仅供合规的 B2B 调研使用。遵守各平台服务条款、GDPR/CAN-SPAM，联系时提供退订方式。</p>
 <h2>任务</h2>
-<table><tr><th>ID</th><th>类别</th><th>位置</th><th>状态</th><th>进度</th><th>数量</th><th>创建</th></tr>
-{{range .Jobs}}<tr><td><a href="/jobs/{{.ID}}">{{.ID}}</a></td><td>{{.Params.Category}}</td><td>{{.Params.Location}}</td><td>{{.Status}}</td><td>{{.Progress}} {{.Error}}</td><td>{{.Count}}</td><td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td></tr>{{end}}
-</table></body></html>
+<table><tr><th>ID</th><th>类别</th><th>位置</th><th>半径</th><th>增量</th><th>状态</th><th>进度</th><th>数量</th><th>创建</th></tr>
+{{range .Jobs}}<tr><td><a href="/jobs/{{.ID}}">{{.ID}}</a></td><td>{{.Params.Category}}</td><td>{{.Params.Location}}{{if .Params.Area}} / {{.Params.Area}}{{end}}</td><td>{{if eq .Params.RadiusM 0}}全城{{else}}{{.Params.RadiusM}}m{{end}}</td><td>{{if .Params.Incremental}}是{{else}}否{{end}}</td><td>{{.Status}}</td><td>{{.Progress}} {{.Error}}</td><td>{{.Count}}</td><td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td></tr>{{end}}
+</table>
+<script>
+document.getElementById('btnCov').onclick=async()=>{
+  const loc=document.getElementById('location').value.trim();
+  const cat=document.getElementById('category').value.trim();
+  const country=document.getElementById('country').value.trim();
+  if(!loc||!cat){alert('请先填行业和城市');return;}
+  const el=document.getElementById('cov'); el.style.display='block'; el.textContent='查询中…';
+  const u='/api/coverage?location='+encodeURIComponent(loc)+'&category='+encodeURIComponent(cat)+'&country='+encodeURIComponent(country)+'&geocode=1';
+  const j=await fetch(u).then(r=>r.json());
+  const osm=j.osm||{}, gm=j.gmaps||{};
+  el.innerHTML='<b>覆盖摘要</b>（城市+行业共用）<br>已存线索: '+(j.leads||0)+
+    '<br>OSM: '+ (osm.cell_count||0)+' 格，约已盖半径 '+(osm.max_radius_m||0)+' m'+
+    '<br>GMaps: '+ (gm.cell_count||0)+' 格，约已盖半径 '+(gm.max_radius_m||0)+' m'+
+    (j.place?'<br>中心: '+j.place.lat.toFixed(4)+','+j.place.lon.toFixed(4)+(j.place.has_bbox?'（有边界框）':''):'');
+};
+</script>
+</body></html>

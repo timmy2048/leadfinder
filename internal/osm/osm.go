@@ -33,8 +33,26 @@ func New() *Client {
 	}
 }
 
+// Place is a geocoded location with optional bounding box.
+type Place struct {
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	South       float64 `json:"south"`
+	North       float64 `json:"north"`
+	West        float64 `json:"west"`
+	East        float64 `json:"east"`
+	DisplayName string  `json:"display_name"`
+	HasBBox     bool    `json:"has_bbox"`
+}
+
 // Geocode returns lat/lon for a free-form location.
 func (c *Client) Geocode(ctx context.Context, location, country string) (float64, float64, error) {
+	p, err := c.GeocodePlace(ctx, location, country)
+	return p.Lat, p.Lon, err
+}
+
+// GeocodePlace returns lat/lon and Nominatim bounding box when available.
+func (c *Client) GeocodePlace(ctx context.Context, location, country string) (Place, error) {
 	q := url.Values{"q": {location}, "format": {"json"}, "limit": {"1"}}
 	if country != "" {
 		q.Set("countrycodes", strings.ToLower(country))
@@ -43,19 +61,32 @@ func (c *Client) Geocode(ctx context.Context, location, country string) (float64
 	req.Header.Set("User-Agent", UserAgent)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return 0, 0, err
+		return Place{}, err
 	}
 	defer resp.Body.Close()
-	var out []struct{ Lat, Lon string }
+	var out []struct {
+		Lat         string   `json:"lat"`
+		Lon         string   `json:"lon"`
+		DisplayName string   `json:"display_name"`
+		BoundingBox []string `json:"boundingbox"` // south, north, west, east
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return 0, 0, fmt.Errorf("nominatim decode: %w", err)
+		return Place{}, fmt.Errorf("nominatim decode: %w", err)
 	}
 	if len(out) == 0 {
-		return 0, 0, fmt.Errorf("location not found: %q", location)
+		return Place{}, fmt.Errorf("location not found: %q", location)
 	}
 	lat, _ := strconv.ParseFloat(out[0].Lat, 64)
 	lon, _ := strconv.ParseFloat(out[0].Lon, 64)
-	return lat, lon, nil
+	p := Place{Lat: lat, Lon: lon, DisplayName: out[0].DisplayName}
+	if len(out[0].BoundingBox) == 4 {
+		p.South, _ = strconv.ParseFloat(out[0].BoundingBox[0], 64)
+		p.North, _ = strconv.ParseFloat(out[0].BoundingBox[1], 64)
+		p.West, _ = strconv.ParseFloat(out[0].BoundingBox[2], 64)
+		p.East, _ = strconv.ParseFloat(out[0].BoundingBox[3], 64)
+		p.HasBBox = p.South != 0 || p.North != 0 || p.West != 0 || p.East != 0
+	}
+	return p, nil
 }
 
 // categoryTags maps common words to OSM tag filters.
@@ -100,7 +131,7 @@ func regexpQuote(s string) string {
 	return r.Replace(s)
 }
 
-// BuildQuery builds an Overpass QL query.
+// BuildQuery builds an Overpass QL query around a point.
 func BuildQuery(category string, lat, lon float64, radius, limit int) string {
 	var b strings.Builder
 	b.WriteString("[out:json][timeout:90];\n(\n")
@@ -111,7 +142,21 @@ func BuildQuery(category string, lat, lon float64, radius, limit int) string {
 	if limit <= 0 {
 		limit = 100
 	}
-	// fetch more than limit since some lack names; trimmed later
+	fmt.Fprintf(&b, "out center tags %d;\n", limit*3)
+	return b.String()
+}
+
+// BuildQueryBBox builds an Overpass QL query inside a bounding box.
+func BuildQueryBBox(category string, south, west, north, east float64, limit int) string {
+	var b strings.Builder
+	b.WriteString("[out:json][timeout:90];\n(\n")
+	for _, f := range TagFilters(category) {
+		fmt.Fprintf(&b, "  nwr[%s](%f,%f,%f,%f);\n", f, south, west, north, east)
+	}
+	b.WriteString(");\n")
+	if limit <= 0 {
+		limit = 100
+	}
 	fmt.Fprintf(&b, "out center tags %d;\n", limit*3)
 	return b.String()
 }
@@ -125,20 +170,52 @@ type element struct {
 	Tags   map[string]string           `json:"tags"`
 }
 
+func (c *Client) overpass(ctx context.Context, q string) ([]byte, error) {
+	var last error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			wait := time.Duration(attempt*attempt) * 3 * time.Second
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.OverpassURL, strings.NewReader(url.Values{"data": {q}}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("User-Agent", UserAgent)
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			last = err
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			return body, nil
+		}
+		last = fmt.Errorf("overpass status %d: %.200s", resp.StatusCode, body)
+		if resp.StatusCode != 429 && resp.StatusCode < 500 {
+			return nil, last
+		}
+	}
+	return nil, last
+}
+
 // Search runs an Overpass query around lat/lon.
 func (c *Client) Search(ctx context.Context, category string, lat, lon float64, radius, limit int) ([]model.Business, error) {
-	q := BuildQuery(category, lat, lon, radius, limit)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.OverpassURL, strings.NewReader(url.Values{"data": {q}}.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", UserAgent)
-	resp, err := c.HTTP.Do(req)
+	body, err := c.overpass(ctx, BuildQuery(category, lat, lon, radius, limit))
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("overpass status %d: %.200s", resp.StatusCode, body)
+	return ParseResponse(body, category, limit)
+}
+
+// SearchBBox runs an Overpass query inside a bbox.
+func (c *Client) SearchBBox(ctx context.Context, category string, south, west, north, east float64, limit int) ([]model.Business, error) {
+	body, err := c.overpass(ctx, BuildQueryBBox(category, south, west, north, east, limit))
+	if err != nil {
+		return nil, err
 	}
 	return ParseResponse(body, category, limit)
 }

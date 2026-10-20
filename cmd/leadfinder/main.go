@@ -68,8 +68,11 @@ func (g gmapsFlags) resolve(ctx context.Context) string {
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
   leadfinder serve [-addr :8090] [-db leadfinder.db] [-gmaps URL | -gmaps-bin PATH | -gmaps-download]
-  leadfinder run -category restaurant -location "Bath, UK" [-country gb] [-lang en] [-radius 5000] [-limit 20]
-                 [-osm=true] [-gmaps-on] [-social] [-smtp] [-out leads.csv] [-db leadfinder.db]`)
+  leadfinder run -category restaurant -location "Bath, UK" [-area "city centre"] [-country gb] [-lang en]
+                 [-radius 5000]   # omit or 0 = whole city bbox
+                 [-incremental=true] [-cell-size 2500] [-max-cells 40]
+                 [-limit 20] [-osm=true] [-gmaps-on] [-social] [-smtp]
+                 [-out leads.csv] [-db leadfinder.db]`)
 	os.Exit(2)
 }
 
@@ -98,16 +101,20 @@ func main() {
 		fs := flag.NewFlagSet("run", flag.ExitOnError)
 		var p model.JobParams
 		fs.StringVar(&p.Category, "category", "", "business category, e.g. restaurant, dentist or OSM tag amenity=cafe")
-		fs.StringVar(&p.Location, "location", "", "city / area")
+		fs.StringVar(&p.Location, "location", "", "city / region")
+		fs.StringVar(&p.Area, "area", "", "optional district / street (finer place)")
 		fs.StringVar(&p.Country, "country", "", "ISO country code (helps geocoding)")
 		fs.StringVar(&p.Lang, "lang", "en", "language for Google Maps")
-		fs.IntVar(&p.RadiusM, "radius", 5000, "radius meters")
-		fs.IntVar(&p.Limit, "limit", 20, "max results per source")
+		fs.IntVar(&p.RadiusM, "radius", 0, "radius meters; 0 = whole place bounding box")
+		fs.IntVar(&p.Limit, "limit", 20, "max results hint per cell/source")
 		fs.BoolVar(&p.UseOSM, "osm", true, "use OpenStreetMap")
 		fs.BoolVar(&p.UseGMaps, "gmaps-on", false, "use Google Maps (needs gosom service)")
-		fs.IntVar(&p.GMapsMaxSec, "gmaps-max-sec", 600, "max seconds for gmaps job")
+		fs.IntVar(&p.GMapsMaxSec, "gmaps-max-sec", 600, "max seconds for each gmaps cell job")
 		fs.BoolVar(&p.Social, "social", false, "enrich from public social profile pages (off by default)")
 		fs.BoolVar(&p.SMTPCheck, "smtp", false, "SMTP mailbox check (needs outbound port 25)")
+		inc := fs.Bool("incremental", true, "skip already-scanned coverage cells; expand radius as a ring")
+		fs.IntVar(&p.CellSizeM, "cell-size", 2500, "coverage grid cell size in meters")
+		fs.IntVar(&p.MaxCells, "max-cells", 40, "max cells to scan per source in one job")
 		db := fs.String("db", env("LF_DB", "leadfinder.db"), "sqlite path")
 		gf := addGmapsFlags(fs)
 		out := fs.String("out", "", "CSV output path (default stdout)")
@@ -115,7 +122,7 @@ func main() {
 		if p.Category == "" || p.Location == "" {
 			usage()
 		}
-		pipeline.Normalize(&p)
+		pipeline.NormalizeWithIncrementalDefault(&p, *inc)
 		st, err := store.Open(*db)
 		if err != nil {
 			log.Fatal(err)

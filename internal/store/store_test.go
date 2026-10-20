@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/timmy2048/leadfinder/internal/coverage"
 	"github.com/timmy2048/leadfinder/internal/model"
 )
 
@@ -26,5 +27,34 @@ func TestStore(t *testing.T) {
 	_ = WriteCSV(&buf, bs)
 	if !strings.Contains(buf.String(), "a@a.com:valid") {
 		t.Fatal(buf.String())
+	}
+}
+
+func TestCoverageAndLeads(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := coverage.NormalizeKey("shanghai", "cafe", "osm")
+	cells := []coverage.Cell{{Key: "k1", Lat: 31.2, Lon: 121.4, SizeM: 2500}, {Key: "k2", Lat: 31.21, Lon: 121.41, SizeM: 2500}}
+	if err := s.MarkCellsDone(key, cells); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListCoverage(key)
+	if err != nil || len(got) != 2 || got[0].Status != "done" {
+		t.Fatalf("%v %+v", err, got)
+	}
+	lk := coverage.LeadKey("shanghai", "cafe")
+	if err := s.UpsertLeads(lk, []model.Business{{Name: "A", Website: "https://a.com", Emails: []string{"a@a.com"}}, {Name: "A2", Website: "https://a.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	leads, _ := s.LoadLeads(lk)
+	if len(leads) != 1 {
+		t.Fatalf("dedupe leads: %d", len(leads))
+	}
+	_ = s.UpsertLeads(lk, []model.Business{{Name: "B", Phone: "+86 138 0000 0000"}})
+	leads, _ = s.LoadLeads(lk)
+	if len(leads) != 2 {
+		t.Fatalf("got %d", len(leads))
 	}
 }

@@ -11,7 +11,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/timmy2048/leadfinder/internal/coverage"
 	"github.com/timmy2048/leadfinder/internal/model"
+	"github.com/timmy2048/leadfinder/internal/osm"
 	"github.com/timmy2048/leadfinder/internal/pipeline"
 	"github.com/timmy2048/leadfinder/internal/store"
 )
@@ -50,6 +52,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /jobs/{id}/csv", s.csv)
 	m.HandleFunc("GET /api/jobs", s.apiJobs)
 	m.HandleFunc("GET /api/jobs/{id}", s.apiJob)
+	m.HandleFunc("GET /api/coverage", s.apiCoverage)
 	return m
 }
 
@@ -62,9 +65,18 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	atoi := func(k string) int { n, _ := strconv.Atoi(r.FormValue(k)); return n }
 	on := func(k string) bool { return r.FormValue(k) != "" }
-	p := model.JobParams{Category: strings.TrimSpace(r.FormValue("category")), Location: strings.TrimSpace(r.FormValue("location")),
-		Country: r.FormValue("country"), Lang: r.FormValue("lang"), RadiusM: atoi("radius"), Limit: atoi("limit"),
-		UseGMaps: on("gmaps"), UseOSM: on("osm"), Social: on("social"), SMTPCheck: on("smtp"), GMapsMaxSec: atoi("gmaps_max_sec")}
+	radiusRaw := strings.TrimSpace(r.FormValue("radius"))
+	radius := 0
+	if radiusRaw != "" {
+		radius = atoi("radius")
+	}
+	p := model.JobParams{
+		Category: strings.TrimSpace(r.FormValue("category")), Location: strings.TrimSpace(r.FormValue("location")),
+		Area: strings.TrimSpace(r.FormValue("area")), Country: r.FormValue("country"), Lang: r.FormValue("lang"),
+		RadiusM: radius, Limit: atoi("limit"),
+		UseGMaps: on("gmaps"), UseOSM: on("osm"), Social: on("social"), SMTPCheck: on("smtp"), GMapsMaxSec: atoi("gmaps_max_sec"),
+		Incremental: on("incremental"), CellSizeM: atoi("cell_size"), MaxCells: atoi("max_cells"),
+	}
 	if p.Category == "" || p.Location == "" {
 		http.Error(w, "category and location required", 400)
 		return
@@ -114,4 +126,41 @@ func (s *Server) apiJob(w http.ResponseWriter, r *http.Request) {
 	}
 	bs, _ := s.Store.Businesses(j.ID)
 	_ = json.NewEncoder(w).Encode(map[string]any{"job": j, "businesses": bs})
+}
+
+// apiCoverage returns prior coverage summary for location+category (+ optional geocode).
+func (s *Server) apiCoverage(w http.ResponseWriter, r *http.Request) {
+	loc := strings.TrimSpace(r.URL.Query().Get("location"))
+	cat := strings.TrimSpace(r.URL.Query().Get("category"))
+	country := r.URL.Query().Get("country")
+	if loc == "" || cat == "" {
+		http.Error(w, "location and category required", 400)
+		return
+	}
+	out := map[string]any{}
+	for _, src := range []string{"osm", "gmaps"} {
+		key := coverage.NormalizeKey(loc, cat, src)
+		cells, _ := s.Store.ListCoverage(key)
+		sum := coverage.Summary{Key: key, CellCount: len(cells)}
+		for _, c := range cells {
+			if c.ScannedAt.After(sum.LastScan) {
+				sum.LastScan = c.ScannedAt
+			}
+		}
+		out[src] = sum
+	}
+	leads, _ := s.Store.LoadLeads(coverage.LeadKey(loc, cat))
+	out["leads"] = len(leads)
+	if r.URL.Query().Get("geocode") == "1" {
+		place, err := osm.New().GeocodePlace(r.Context(), loc, country)
+		if err == nil {
+			out["place"] = place
+			for _, src := range []string{"osm", "gmaps"} {
+				key := coverage.NormalizeKey(loc, cat, src)
+				sum, _ := s.Store.CoverageSummary(key, place.Lat, place.Lon)
+				out[src] = sum
+			}
+		}
+	}
+	_ = json.NewEncoder(w).Encode(out)
 }

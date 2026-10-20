@@ -2,7 +2,8 @@
 {{if .Running}}<meta http-equiv="refresh" content="5">{{end}}
 <style>body{font-family:system-ui,sans-serif;margin:2em}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 6px;font-size:13px;vertical-align:top}</style></head><body>
 <p><a href="/">← 返回</a></p>
-<h1>任务 #{{.Job.ID}}：{{.Job.Params.Category}} @ {{.Job.Params.Location}}</h1>
+<h1>任务 #{{.Job.ID}}：{{.Job.Params.Category}} @ {{.Job.Params.Location}}{{if .Job.Params.Area}} / {{.Job.Params.Area}}{{end}}</h1>
+<p>半径：{{if eq .Job.Params.RadiusM 0}}全城（边界框）{{else}}{{.Job.Params.RadiusM}} m{{end}} · 增量：{{if .Job.Params.Incremental}}开{{else}}关{{end}} · 格子：{{.Job.Params.CellSizeM}} m</p>
 <p>状态：<b>{{.Job.Status}}</b> — {{.Job.Progress}} {{if .Job.Error}}<span style="color:#a33">{{.Job.Error}}</span>{{end}}</p>
 <p><a href="/jobs/{{.Job.ID}}/csv">导出 CSV</a> · <a href="/api/jobs/{{.Job.ID}}">JSON</a></p>
 <table><tr><th>SEO分</th><th>名称</th><th>类别</th><th>电话</th><th>网站</th><th>邮箱(验证)</th><th>社媒</th><th>来源</th><th>评论</th><th>原因</th></tr>

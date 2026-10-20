@@ -1,4 +1,4 @@
-// Package store persists jobs and businesses in SQLite (pure Go driver).
+// Package store persists jobs, businesses, coverage cells and lead library in SQLite.
 package store
 
 import (
@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/timmy2048/leadfinder/internal/coverage"
+	"github.com/timmy2048/leadfinder/internal/dedupe"
 	"github.com/timmy2048/leadfinder/internal/model"
 	_ "modernc.org/sqlite"
 )
@@ -25,7 +27,28 @@ func Open(path string) (*Store, error) {
 	_, err = db.Exec(`
 CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY AUTOINCREMENT, params TEXT, status TEXT, progress TEXT, error TEXT, created_at TIMESTAMP, count INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS businesses(id INTEGER PRIMARY KEY AUTOINCREMENT, job_id INTEGER, seo_score INTEGER, data TEXT);
-CREATE INDEX IF NOT EXISTS idx_b_job ON businesses(job_id);`)
+CREATE INDEX IF NOT EXISTS idx_b_job ON businesses(job_id);
+CREATE TABLE IF NOT EXISTS coverage_cells(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cov_key TEXT NOT NULL,
+  cell_key TEXT NOT NULL,
+  lat REAL, lon REAL,
+  size_m INTEGER,
+  status TEXT,
+  scanned_at TIMESTAMP,
+  UNIQUE(cov_key, cell_key)
+);
+CREATE INDEX IF NOT EXISTS idx_cov_key ON coverage_cells(cov_key);
+CREATE TABLE IF NOT EXISTS leads(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  seo_score INTEGER,
+  data TEXT,
+  updated_at TIMESTAMP,
+  UNIQUE(lead_key, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_lead_key ON leads(lead_key);`)
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +144,123 @@ func (s *Store) Businesses(jobID int64) ([]model.Business, error) {
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+// --- coverage cells ---
+
+func (s *Store) ListCoverage(covKey string) ([]coverage.Cell, error) {
+	rows, err := s.db.Query(`SELECT cell_key,lat,lon,size_m,status,scanned_at FROM coverage_cells WHERE cov_key=?`, covKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []coverage.Cell
+	for rows.Next() {
+		var c coverage.Cell
+		var scanned sql.NullTime
+		if err := rows.Scan(&c.Key, &c.Lat, &c.Lon, &c.SizeM, &c.Status, &scanned); err != nil {
+			return nil, err
+		}
+		if scanned.Valid {
+			c.ScannedAt = scanned.Time
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) MarkCellsDone(covKey string, cells []coverage.Cell) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	for _, c := range cells {
+		_, err := tx.Exec(`INSERT INTO coverage_cells(cov_key,cell_key,lat,lon,size_m,status,scanned_at) VALUES(?,?,?,?,?,?,?)
+ON CONFLICT(cov_key,cell_key) DO UPDATE SET status='done', scanned_at=excluded.scanned_at, lat=excluded.lat, lon=excluded.lon, size_m=excluded.size_m`,
+			covKey, c.Key, c.Lat, c.Lon, c.SizeM, "done", now)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) CoverageSummary(covKey string, originLat, originLon float64) (coverage.Summary, error) {
+	cells, err := s.ListCoverage(covKey)
+	if err != nil {
+		return coverage.Summary{}, err
+	}
+	sum := coverage.Summary{Key: covKey, CellCount: len(cells)}
+	for _, c := range cells {
+		if c.ScannedAt.After(sum.LastScan) {
+			sum.LastScan = c.ScannedAt
+		}
+	}
+	sum.MaxRadiusM = coverage.ApproxMaxRadius(originLat, originLon, cells)
+	return sum, nil
+}
+
+// --- persistent leads library ---
+
+func fingerprint(b model.Business) string {
+	if d := dedupe.Domain(b.Website); d != "" {
+		return "d:" + d
+	}
+	if p := dedupe.Phone(b.Phone); p != "" {
+		return "p:" + p
+	}
+	name := strings.ToLower(strings.TrimSpace(b.Name))
+	return fmt.Sprintf("n:%.4f:%.4f:%s", b.Lat, b.Lon, name)
+}
+
+func (s *Store) LoadLeads(leadKey string) ([]model.Business, error) {
+	rows, err := s.db.Query(`SELECT id,data FROM leads WHERE lead_key=? ORDER BY seo_score DESC, id`, leadKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.Business
+	for rows.Next() {
+		var id int64
+		var d string
+		if err := rows.Scan(&id, &d); err != nil {
+			return nil, err
+		}
+		var b model.Business
+		_ = json.Unmarshal([]byte(d), &b)
+		b.ID = id
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// UpsertLeads merges businesses into the lead library for leadKey.
+func (s *Store) UpsertLeads(leadKey string, bs []model.Business) error {
+	existing, err := s.LoadLeads(leadKey)
+	if err != nil {
+		return err
+	}
+	merged := dedupe.Merge(append(append([]model.Business{}, existing...), bs...))
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM leads WHERE lead_key=?`, leadKey); err != nil {
+		tx.Rollback()
+		return err
+	}
+	now := time.Now()
+	for _, b := range merged {
+		d, _ := json.Marshal(b)
+		fp := fingerprint(b)
+		if _, err := tx.Exec(`INSERT INTO leads(lead_key,fingerprint,seo_score,data,updated_at) VALUES(?,?,?,?,?)`, leadKey, fp, b.SEOScore, string(d), now); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // WriteCSV exports businesses (UTF-8 BOM for Excel).
