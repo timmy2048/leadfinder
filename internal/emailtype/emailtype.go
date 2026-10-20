@@ -25,7 +25,7 @@ var freeProviders = map[string]bool{
 var roleWords = []string{"info", "contact", "contacts", "hello", "hi", "hey", "reservations", "reservation", "reserve", "sales", "support", "admin",
 	"office", "events", "event", "booking", "bookings", "book", "orders", "order", "catering", "team", "mail", "email", "enquiries", "enquiry",
 	"inquiries", "inquiry", "help", "service", "customerservice", "care", "billing", "accounts", "accounting", "marketing", "press", "media",
-	"pr", "jobs", "careers", "hr", "noreply", "no-reply", "donotreply", "webmaster", "postmaster", "general", "feedback", "welcome",
+	"pr", "jobs", "careers", "hr", "noreply", "no-reply", "donotreply", "webmaster", "postmaster", "general", "feedback", "comments", "comment", "welcome",
 	"store", "shop", "online", "manager", "management", "frontdesk", "reception", "privatedining", "private", "party", "parties",
 	"giftcards", "gifts", "wholesale", "partners", "partnerships", "community", "social", "news", "newsletter", "ask", "questions", "owner", "eat", "dine", "coffee", "cafe"}
 
